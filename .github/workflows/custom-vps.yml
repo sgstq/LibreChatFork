@@ -3,57 +3,59 @@ name: Deploy to custom VPS
 
 on:
   push:
-    branches: [ prod ]
+    branches: [prod]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    - name: Deploy to production server
-      env:
-        PROD_SERVER_SSH_KEY: ${{ secrets.PROD_SERVER_SSH_KEY }}
-        PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
-        PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
-        PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}
-      run: |
-        # Setup SSH
-        mkdir -p ~/.ssh
-        echo "$PROD_SERVER_SSH_KEY" > ~/.ssh/id_ed25519
-        chmod 600 ~/.ssh/id_ed25519
-        ssh-keyscan -H $PROD_SERVER_HOST >> ~/.ssh/known_hosts
+      - name: Deploy to production server
+        env:
+          PROD_SERVER_SSH_KEY: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
+          PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+          PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}
+        run: |
+          # Setup SSH
+          mkdir -p ~/.ssh
+          echo "$PROD_SERVER_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H $PROD_SERVER_HOST >> ~/.ssh/known_hosts
+      - name: Create deployment archive
+        run: |
+          # Create a tarball of the current directory (excluding .git)
+          tar --warning=no-file-changed --exclude='.git' -czf /tmp/deploy.tar.gz .
+      - name: Deploy to production server
+        run: |
+          # Copy the tarball to the server
+          scp deploy.tar.gz $PROD_SERVER_USER@$PROD_SERVER_HOST:~/
 
-        # Create a tarball of the current directory (excluding .git)
-        tar --exclude='.git' -czf deploy.tar.gz .
+          # Connect to the server and deploy
+          ssh $PROD_SERVER_USER@$PROD_SERVER_HOST << EOF
+            # Navigate to your project directory
+            cd $PROD_PROJECT_PATH
 
-        # Copy the tarball to the server
-        scp deploy.tar.gz $PROD_SERVER_USER@$PROD_SERVER_HOST:~/
+            # Extract the new code
+            tar -xzf ~/deploy.tar.gz
 
-        # Connect to the server and deploy
-        ssh $PROD_SERVER_USER@$PROD_SERVER_HOST << EOF
-          # Navigate to your project directory
-          cd $PROD_PROJECT_PATH
+            # Remove the tarball
+            rm ~/deploy.tar.gz
 
-          # Extract the new code
-          tar -xzf ~/deploy.tar.gz
+            # Build and start the services
+            docker-compose --env-file .env pull
+            docker-compose --env-file .env up -d --build
 
-          # Remove the tarball
-          rm ~/deploy.tar.gz
+            # Optional: Prune old images to free up space
+            docker image prune -f
+          EOF
 
-          # Build and start the services
-          docker-compose --env-file .env pull
-          docker-compose --env-file .env up -d --build
+      - name: Notify on success
+        if: success()
+        run: echo "Deployment successful!"
 
-          # Optional: Prune old images to free up space
-          docker image prune -f
-        EOF
-
-    - name: Notify on success
-      if: success()
-      run: echo "Deployment successful!"
-
-    - name: Notify on failure
-      if: failure()
-      run: echo "Deployment failed!"
+      - name: Notify on failure
+        if: failure()
+        run: echo "Deployment failed!"
