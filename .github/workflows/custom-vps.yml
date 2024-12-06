@@ -8,16 +8,16 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      PROD_SERVER_SSH_KEY: ${{ secrets.PROD_SERVER_SSH_KEY }}
+      PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
+      PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+      PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
       - name: Deploy to production server
-        env:
-          PROD_SERVER_SSH_KEY: ${{ secrets.PROD_SERVER_SSH_KEY }}
-          PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
-          PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
-          PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}
         run: |
           # Setup SSH
           mkdir -p ~/.ssh
