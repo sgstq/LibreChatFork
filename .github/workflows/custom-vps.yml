@@ -1,0 +1,59 @@
+name: Deploy to custom VPS
+# YOU NEED MANUALLY PLACE .env FILE ON THE SERVER
+
+on:
+  push:
+    branches: [ prod ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Deploy to production server
+      env:
+        PROD_SERVER_SSH_KEY: ${{ secrets.PROD_SERVER_SSH_KEY }}
+        PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
+        PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+        PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}
+      run: |
+        # Setup SSH
+        mkdir -p ~/.ssh
+        echo "$PROD_SERVER_SSH_KEY" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        ssh-keyscan -H $PROD_SERVER_HOST >> ~/.ssh/known_hosts
+
+        # Create a tarball of the current directory (excluding .git)
+        tar --exclude='.git' -czf deploy.tar.gz .
+
+        # Copy the tarball to the server
+        scp deploy.tar.gz $PROD_SERVER_USER@$PROD_SERVER_HOST:~/
+
+        # Connect to the server and deploy
+        ssh $PROD_SERVER_USER@$PROD_SERVER_HOST << EOF
+          # Navigate to your project directory
+          cd $PROD_PROJECT_PATH
+
+          # Extract the new code
+          tar -xzf ~/deploy.tar.gz
+
+          # Remove the tarball
+          rm ~/deploy.tar.gz
+
+          # Build and start the services
+          docker-compose --env-file .env pull
+          docker-compose --env-file .env up -d --build
+
+          # Optional: Prune old images to free up space
+          docker image prune -f
+        EOF
+
+    - name: Notify on success
+      if: success()
+      run: echo "Deployment successful!"
+
+    - name: Notify on failure
+      if: failure()
+      run: echo "Deployment failed!"
