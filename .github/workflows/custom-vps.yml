@@ -14,6 +14,8 @@ jobs:
 
       - name: Deploy to production server
         run: |
+          user=${{ secrets.PROD_SERVER_USER }}
+          echo "$user"
           # Setup SSH
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
