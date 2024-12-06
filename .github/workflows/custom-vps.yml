@@ -19,6 +19,9 @@ jobs:
           PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
           PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}
         run: |
+          # Enable debug mode
+          set -x
+
           # Print environment variables for debugging
           echo "Deploying to production server"
           echo "PROD_SERVER_HOST: $PROD_SERVER_HOST"
@@ -32,6 +35,9 @@ jobs:
           ssh-keyscan -H $PROD_SERVER_HOST >> ~/.ssh/known_hosts
       - name: Create deployment archive
         run: |
+          # Enable debug mode
+          set -x
+
           # Print environment variables for debugging
           echo "Creating deployment archive"
 
@@ -39,6 +45,9 @@ jobs:
           tar --warning=no-file-changed --exclude='.git' -czf /tmp/deploy.tar.gz .
       - name: Deploy to production server
         run: |
+          # Enable debug mode
+          set -x
+
           # Print environment variables for debugging
           echo "Copying tarball to server"
           echo "PROD_SERVER_HOST: $PROD_SERVER_HOST"
@@ -49,6 +58,9 @@ jobs:
 
           # Connect to the server and deploy
           ssh $PROD_SERVER_USER@$PROD_SERVER_HOST << EOF
+            # Enable debug mode
+            set -x
+
             # Print environment variables for debugging
             echo "Deploying on server"
             echo "PROD_PROJECT_PATH: $PROD_PROJECT_PATH"
