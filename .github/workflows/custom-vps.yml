@@ -20,6 +20,7 @@ jobs:
           PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}
         run: |
           # Print environment variables for debugging
+          echo "Deploying to production server"
           echo "PROD_SERVER_HOST: $PROD_SERVER_HOST"
           echo "PROD_SERVER_USER: $PROD_SERVER_USER"
           echo "PROD_PROJECT_PATH: $PROD_PROJECT_PATH"
