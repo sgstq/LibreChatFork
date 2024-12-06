@@ -5,6 +5,12 @@ on:
   push:
     branches: [prod]
 
+env:
+  PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
+  PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+  PROD_SERVER_SSH_KEY: ${{ secrets.PROD_SERVER_SSH_KEY }}
+  PROD_PROJECT_PATH: ${{ secrets.PROD_PROJECT_PATH }}
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
