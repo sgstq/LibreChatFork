@@ -8,17 +8,22 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      PROD_SERVER_SSH_KEY: ${{ secrets.PROD_SERVER_SSH_KEY }}
-      PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
-      PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
-      PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
       - name: Deploy to production server
+        env:
+          PROD_SERVER_SSH_KEY: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
+          PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+          PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}
         run: |
+          # Print environment variables for debugging
+          echo "PROD_SERVER_HOST: $PROD_SERVER_HOST"
+          echo "PROD_SERVER_USER: $PROD_SERVER_USER"
+          echo "PROD_PROJECT_PATH: $PROD_PROJECT_PATH"
+
           # Setup SSH
           mkdir -p ~/.ssh
           echo "$PROD_SERVER_SSH_KEY" > ~/.ssh/id_ed25519
@@ -26,15 +31,27 @@ jobs:
           ssh-keyscan -H $PROD_SERVER_HOST >> ~/.ssh/known_hosts
       - name: Create deployment archive
         run: |
+          # Print environment variables for debugging
+          echo "Creating deployment archive"
+
           # Create a tarball of the current directory (excluding .git)
           tar --warning=no-file-changed --exclude='.git' -czf /tmp/deploy.tar.gz .
       - name: Deploy to production server
         run: |
+          # Print environment variables for debugging
+          echo "Copying tarball to server"
+          echo "PROD_SERVER_HOST: $PROD_SERVER_HOST"
+          echo "PROD_SERVER_USER: $PROD_SERVER_USER"
+
           # Copy the tarball to the server
-          scp deploy.tar.gz $PROD_SERVER_USER@$PROD_SERVER_HOST:~/
+          scp /tmp/deploy.tar.gz $PROD_SERVER_USER@$PROD_SERVER_HOST:~/
 
           # Connect to the server and deploy
           ssh $PROD_SERVER_USER@$PROD_SERVER_HOST << EOF
+            # Print environment variables for debugging
+            echo "Deploying on server"
+            echo "PROD_PROJECT_PATH: $PROD_PROJECT_PATH"
+
             # Navigate to your project directory
             cd $PROD_PROJECT_PATH
 
