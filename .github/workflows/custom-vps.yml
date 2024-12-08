@@ -18,6 +18,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Print environment variables
+        run: |
+          echo "PROD_SERVER_HOST: ${{ env.PROD_SERVER_HOST }}"
+          echo "PROD_SERVER_USER: ${{ env.PROD_SERVER_USER }}"
+          echo "PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}"
+          echo "PROD_SERVER_SSH_KEY: ${{ env.PROD_SERVER_SSH_KEY }}"
+
       - name: Deploy to production server
         run: |
           # Setup SSH
