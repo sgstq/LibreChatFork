@@ -36,10 +36,4 @@ jobs:
           echo "$(cat ~/.ssh/id_rsa)"
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $PROD_SERVER_USER@$PROD_SERVER_HOST << EOF
           echo "Connected to production server"
-          # cd $PROD_PROJECT_PATH
-          # git init
-          # git remote add origin https://github.com/your-username/your-repo.git
-          # git fetch origin
-          # git reset --hard origin/prod
-          # docker-compose -f deploy-compose.yml up -d
           EOF
