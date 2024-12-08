@@ -26,8 +26,8 @@ jobs:
 
       - name: Deploy to Production Server
         env:
-          PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
-          PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+          PROD_SERVER_HOST: ${{ vars.PROD_SERVER_HOST }}
+          PROD_SERVER_USER: ${{ vars.PROD_SERVER_USER }}
           PROD_PROJECT_PATH: ${{ vars.PROD_PROJECT_PATH }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
