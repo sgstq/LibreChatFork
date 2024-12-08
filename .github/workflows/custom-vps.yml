@@ -33,6 +33,7 @@ jobs:
         run: |
           echo "Deploying to production server..."
           echo "$PROD_SERVER_USER@$PROD_SERVER_HOST:$PROD_PROJECT_PATH"
+          echo "$(cat ~/.ssh/id_rsa)"
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $PROD_SERVER_USER@$PROD_SERVER_HOST << EOF
           cd $PROD_PROJECT_PATH
           git init
