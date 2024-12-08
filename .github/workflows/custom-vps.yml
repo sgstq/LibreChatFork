@@ -1,74 +1,36 @@
-name: Deploy to custom VPS
-# YOU NEED MANUALLY PLACE .env FILE ON THE SERVER
+name: Deploy to Production Server
 
 on:
   push:
-    branches: [prod]
-
-env:
-  PROD_SERVER_HOST: ${{ vars.PROD_SERVER_HOST }}
-  PROD_SERVER_USER: ${{ vars.PROD_SERVER_USER }}
-  PROD_SERVER_SSH_KEY: ${{ vars.PROD_SERVER_SSH_KEY }}
-  PROD_PROJECT_PATH: ${{ vars.PROD_PROJECT_PATH }}
+    branches:
+      - prod
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Print environment variables
+      - name: Install SSH Key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          known_hosts: ${{ secrets.PROD_SERVER_HOST }}
+
+      - name: Deploy to Production Server
+        env:
+          PROD_SERVER_HOST: ${{ secrets.PROD_SERVER_HOST }}
+          PROD_SERVER_USER: ${{ secrets.PROD_SERVER_USER }}
+          PROD_PROJECT_PATH: ${{ vars.PROD_PROJECT_PATH }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "PROD_SERVER_HOST: ${{ env.PROD_SERVER_HOST }}"
-          echo "PROD_SERVER_USER: ${{ env.PROD_SERVER_USER }}"
-          echo "PROD_PROJECT_PATH: ${{ env.PROD_PROJECT_PATH }}"
-          echo "PROD_SERVER_SSH_KEY: ${{ env.PROD_SERVER_SSH_KEY }}"
-
-      - name: Deploy to production server
-        run: |
-          # Setup SSH
-          mkdir -p ~/.ssh
-          echo "${{ env.PROD_SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
-          cat ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ env.PROD_SERVER_HOST }}" >> ~/.ssh/known_hosts
-      - name: Create deployment archive
-        run: |
-          # Print environment variables for debugging
-          echo "Creating deployment archive"
-
-          # Create a tarball of the current directory (excluding .git)
-          tar --warning=no-file-changed --exclude='.git' -czf /tmp/deploy.tar.gz .
-      - name: Deploy to production server
-        run: |
-          # Copy the tarball to the server
-          scp /tmp/deploy.tar.gz "${{ env.PROD_SERVER_USER }}@${{ env.PROD_SERVER_HOST }}":~/
-
-          # Connect to the server and deploy
-          ssh "${{ env.PROD_SERVER_USER }}@${{ env.PROD_SERVER_HOST }}" bash -s << 'EOF'
-
-            # Navigate to your project directory
-            cd "${{ env.PROD_PROJECT_PATH }}"
-
-            # Extract the new code
-            tar -xzf ~/deploy.tar.gz
-
-            # Remove the tarball
-            rm ~/deploy.tar.gz
-
-            # Build and start the services
-            docker-compose --env-file .env pull
-            docker-compose --env-file .env up -d --build
-
-            # Optional: Prune old images to free up space
-            docker image prune -f
+          ssh -o StrictHostKeyChecking=no $PROD_SERVER_USER@$PROD_SERVER_HOST << EOF
+          cd $PROD_PROJECT_PATH
+          git init
+          git remote add origin ${{ github.repositoryUrl }}
+          git fetch origin
+          git reset --hard origin/prod
+          docker-compose -f deploy-compose.yml up -d
           EOF
-
-      - name: Notify on success
-        if: success()
-        run: echo "Deployment successful!"
-
-      - name: Notify on failure
-        if: failure()
-        run: echo "Deployment failed!"
