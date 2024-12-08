@@ -16,11 +16,11 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.PROD_SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          echo "${{ vars.PROD_SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
           cat ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan ${{ secrets.PROD_SERVER_HOST }} >> ~/.ssh/known_hosts
-          echo "Host ${{ secrets.PROD_SERVER_HOST }}" >> ~/.ssh/config
+          ssh-keyscan ${{ vars.PROD_SERVER_HOST }} >> ~/.ssh/known_hosts
+          echo "Host ${{ vars.PROD_SERVER_HOST }}" >> ~/.ssh/config
           echo "  IdentityFile ~/.ssh/id_rsa" >> ~/.ssh/config
           cat ~/.ssh/config
 
