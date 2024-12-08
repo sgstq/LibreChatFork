@@ -16,9 +16,9 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ vars.PROD_SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
-          cat ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          echo "${{ vars.PROD_SERVER_SSH_KEY }}" > ~/.ssh/server_key
+          cat ~/.ssh/server_key
+          chmod 600 ~/.ssh/server_key
 
       - name: Deploy to Production Server
         env:
@@ -29,8 +29,8 @@ jobs:
         run: |
           echo "Deploying to production server..."
           echo "$PROD_SERVER_USER@$PROD_SERVER_HOST:$PROD_PROJECT_PATH"
-          echo "$(cat ~/.ssh/id_rsa)"
-          export COMMAND="ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $PROD_SERVER_USER@$PROD_SERVER_HOST"
+          echo "$(cat ~/.ssh/server_key)"
+          export COMMAND="ssh -o StrictHostKeyChecking=no -i ~/.ssh/server_key $PROD_SERVER_USER@$PROD_SERVER_HOST"
           echo $COMMAND
           $COMMAND << EOF
           echo "Connected to production server"
