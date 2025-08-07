@@ -19,14 +19,18 @@ export enum Tools {
   execute_code = 'execute_code',
   code_interpreter = 'code_interpreter',
   file_search = 'file_search',
+  web_search = 'web_search',
   retrieval = 'retrieval',
   function = 'function',
+  memory = 'memory',
 }
 
 export enum EToolResources {
   code_interpreter = 'code_interpreter',
   execute_code = 'execute_code',
   file_search = 'file_search',
+  image_edit = 'image_edit',
+  ocr = 'ocr',
 }
 
 export type Tool = {
@@ -149,11 +153,12 @@ export type File = {
 
 /* Agent types */
 
-export type AgentParameterValue = number | null;
+export type AgentParameterValue = number | string | null;
 
 export type AgentModelParameters = {
   model?: string;
   temperature: AgentParameterValue;
+  maxContextTokens: AgentParameterValue;
   max_context_tokens: AgentParameterValue;
   max_output_tokens: AgentParameterValue;
   top_p: AgentParameterValue;
@@ -161,14 +166,9 @@ export type AgentModelParameters = {
   presence_penalty: AgentParameterValue;
 };
 
-export interface AgentToolResources {
-  execute_code?: ExecuteCodeResource;
-  file_search?: AgentFileSearchResource;
-}
-export interface ExecuteCodeResource {
+export interface AgentBaseResource {
   /**
-   * A list of file IDs made available to the `execute_code` tool.
-   * There can be a maximum of 20 files associated with the tool.
+   * A list of file IDs made available to the tool.
    */
   file_ids?: Array<string>;
   /**
@@ -177,21 +177,24 @@ export interface ExecuteCodeResource {
   files?: Array<TFile>;
 }
 
-export interface AgentFileSearchResource {
+export interface AgentToolResources {
+  [EToolResources.image_edit]?: AgentBaseResource;
+  [EToolResources.execute_code]?: ExecuteCodeResource;
+  [EToolResources.file_search]?: AgentFileResource;
+  [EToolResources.ocr]?: AgentBaseResource;
+}
+/**
+ * A resource for the execute_code tool.
+ * Contains file IDs made available to the tool (max 20 files) and already fetched files.
+ */
+export type ExecuteCodeResource = AgentBaseResource;
+
+export interface AgentFileResource extends AgentBaseResource {
   /**
    * The ID of the vector store attached to this agent. There
    * can be a maximum of 1 vector store attached to the agent.
    */
   vector_store_ids?: Array<string>;
-  /**
-   * A list of file IDs made available to the `file_search` tool.
-   * To be used before vector stores are implemented.
-   */
-  file_ids?: Array<string>;
-  /**
-   * A list of files already fetched.
-   */
-  files?: Array<TFile>;
 }
 
 export type Agent = {
@@ -220,6 +223,8 @@ export type Agent = {
   end_after_tools?: boolean;
   hide_sequential_outputs?: boolean;
   artifacts?: ArtifactModes;
+  recursion_limit?: number;
+  version?: number;
 };
 
 export type TAgentsMap = Record<string, Agent | undefined>;
@@ -234,7 +239,10 @@ export type AgentCreateParams = {
   provider: AgentProvider;
   model: string | null;
   model_parameters: AgentModelParameters;
-} & Pick<Agent, 'agent_ids' | 'end_after_tools' | 'hide_sequential_outputs' | 'artifacts'>;
+} & Pick<
+  Agent,
+  'agent_ids' | 'end_after_tools' | 'hide_sequential_outputs' | 'artifacts' | 'recursion_limit'
+>;
 
 export type AgentUpdateParams = {
   name?: string | null;
@@ -250,7 +258,10 @@ export type AgentUpdateParams = {
   projectIds?: string[];
   removeProjectIds?: string[];
   isCollaborative?: boolean;
-} & Pick<Agent, 'agent_ids' | 'end_after_tools' | 'hide_sequential_outputs' | 'artifacts'>;
+} & Pick<
+  Agent,
+  'agent_ids' | 'end_after_tools' | 'hide_sequential_outputs' | 'artifacts' | 'recursion_limit'
+>;
 
 export type AgentListParams = {
   limit?: number;
@@ -438,7 +449,7 @@ export type ContentPart = (
   PartMetadata;
 
 export type TMessageContentParts =
-  | { type: ContentTypes.ERROR; text: Text & PartMetadata }
+  | { type: ContentTypes.ERROR; text?: string | (Text & PartMetadata); error?: string }
   | { type: ContentTypes.THINK; think: string | (Text & PartMetadata) }
   | { type: ContentTypes.TEXT; text: string | (Text & PartMetadata); tool_call_ids?: string[] }
   | {
@@ -453,6 +464,7 @@ export type TMessageContentParts =
         PartMetadata;
     }
   | { type: ContentTypes.IMAGE_FILE; image_file: ImageFile & PartMetadata }
+  | Agents.AgentUpdate
   | Agents.MessageContentImageUrl;
 
 export type StreamContentData = TMessageContentParts & {
@@ -474,60 +486,6 @@ export const actionDelimiter = '_action_';
 export const actionDomainSeparator = '---';
 export const hostImageIdSuffix = '_host_copy';
 export const hostImageNamePrefix = 'host_copy_';
-
-export enum AuthTypeEnum {
-  ServiceHttp = 'service_http',
-  OAuth = 'oauth',
-  None = 'none',
-}
-
-export enum AuthorizationTypeEnum {
-  Bearer = 'bearer',
-  Basic = 'basic',
-  Custom = 'custom',
-}
-
-export enum TokenExchangeMethodEnum {
-  DefaultPost = 'default_post',
-  BasicAuthHeader = 'basic_auth_header',
-}
-
-export type ActionAuth = {
-  authorization_type?: AuthorizationTypeEnum;
-  custom_auth_header?: string;
-  type?: AuthTypeEnum;
-  authorization_content_type?: string;
-  authorization_url?: string;
-  client_url?: string;
-  scope?: string;
-  token_exchange_method?: TokenExchangeMethodEnum;
-};
-
-export type ActionMetadata = {
-  api_key?: string;
-  auth?: ActionAuth;
-  domain?: string;
-  privacy_policy_url?: string;
-  raw_spec?: string;
-  oauth_client_id?: string;
-  oauth_client_secret?: string;
-};
-
-export type ActionMetadataRuntime = ActionMetadata & {
-  oauth_access_token?: string;
-  oauth_refresh_token?: string;
-  oauth_token_expires_at?: Date;
-};
-
-/* Assistant types */
-
-export type Action = {
-  action_id: string;
-  type?: string;
-  settings?: Record<string, unknown>;
-  metadata: ActionMetadata;
-  version: number | string;
-} & ({ assistant_id: string; agent_id?: never } | { assistant_id?: never; agent_id: string });
 
 export type AssistantAvatar = {
   filepath: string;

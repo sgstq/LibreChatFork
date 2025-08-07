@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 import { StepTypes, ContentTypes, ToolCallTypes } from './runs';
+import type { TAttachment, TPlugin } from 'src/schemas';
 import type { FunctionToolCall } from './assistants';
-import type { TAttachment } from 'src/schemas';
 
 export namespace Agents {
   export type MessageType = 'human' | 'ai' | 'generic' | 'system' | 'function' | 'tool' | 'remove';
@@ -19,6 +19,15 @@ export namespace Agents {
     tool_call_ids?: string[];
   };
 
+  export type AgentUpdate = {
+    type: ContentTypes.AGENT_UPDATE;
+    agent_update: {
+      index: number;
+      runId: string;
+      agentId: string;
+    };
+  };
+
   export type MessageContentImageUrl = {
     type: ContentTypes.IMAGE_URL;
     image_url: string | { url: string; detail?: ImageDetail };
@@ -26,6 +35,7 @@ export namespace Agents {
 
   export type MessageContentComplex =
     | ReasoningContentText
+    | AgentUpdate
     | MessageContentText
     | MessageContentImageUrl
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -159,12 +169,7 @@ export namespace Agents {
     index: number; // #new
     stepIndex?: number; // #new
     stepDetails: StepDetails;
-    usage: null | {
-      // Define usage structure if it's ever non-null
-      // prompt_tokens: number; // #new
-      // completion_tokens: number; // #new
-      // total_tokens: number; // #new
-    };
+    usage: null | object;
   };
   /**
    * Represents a run step delta i.e. any changed fields on a run step during
@@ -274,3 +279,79 @@ export type ToolCallResult = {
   conversationId: string;
   attachments?: TAttachment[];
 };
+
+export enum AuthTypeEnum {
+  ServiceHttp = 'service_http',
+  OAuth = 'oauth',
+  None = 'none',
+}
+
+export enum AuthorizationTypeEnum {
+  Bearer = 'bearer',
+  Basic = 'basic',
+  Custom = 'custom',
+}
+
+export enum TokenExchangeMethodEnum {
+  DefaultPost = 'default_post',
+  BasicAuthHeader = 'basic_auth_header',
+}
+
+export type Action = {
+  action_id: string;
+  type?: string;
+  settings?: Record<string, unknown>;
+  metadata: ActionMetadata;
+  version: number | string;
+} & ({ assistant_id: string; agent_id?: never } | { assistant_id?: never; agent_id: string });
+
+export type ActionMetadata = {
+  api_key?: string;
+  auth?: ActionAuth;
+  domain?: string;
+  privacy_policy_url?: string;
+  raw_spec?: string;
+  oauth_client_id?: string;
+  oauth_client_secret?: string;
+};
+
+export type ActionAuth = {
+  authorization_type?: AuthorizationTypeEnum;
+  custom_auth_header?: string;
+  type?: AuthTypeEnum;
+  authorization_content_type?: string;
+  authorization_url?: string;
+  client_url?: string;
+  scope?: string;
+  token_exchange_method?: TokenExchangeMethodEnum;
+};
+
+export type ActionMetadataRuntime = ActionMetadata & {
+  oauth_access_token?: string;
+  oauth_refresh_token?: string;
+  oauth_token_expires_at?: Date;
+};
+
+export type MCP = {
+  mcp_id: string;
+  metadata: MCPMetadata;
+} & ({ assistant_id: string; agent_id?: never } | { assistant_id?: never; agent_id: string });
+
+export type MCPMetadata = Omit<ActionMetadata, 'auth'> & {
+  name?: string;
+  description?: string;
+  url?: string;
+  tools?: string[];
+  auth?: MCPAuth;
+  icon?: string;
+  trust?: boolean;
+};
+
+export type MCPAuth = ActionAuth;
+
+export type AgentToolType = {
+  tool_id: string;
+  metadata: ToolMetadata;
+} & ({ assistant_id: string; agent_id?: never } | { assistant_id?: never; agent_id: string });
+
+export type ToolMetadata = TPlugin;

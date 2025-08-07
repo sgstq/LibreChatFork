@@ -1,4 +1,10 @@
-const { CacheKeys, EModelEndpoint, orderEndpointsConfig } = require('librechat-data-provider');
+const {
+  CacheKeys,
+  EModelEndpoint,
+  isAgentsEndpoint,
+  orderEndpointsConfig,
+  defaultAgentCapabilities,
+} = require('librechat-data-provider');
 const loadDefaultEndpointsConfig = require('./loadDefaultEConfig');
 const loadConfigEndpoints = require('./loadConfigEndpoints');
 const getLogStores = require('~/cache/getLogStores');
@@ -33,10 +39,12 @@ async function getEndpointsConfig(req) {
     };
   }
   if (mergedConfig[EModelEndpoint.agents] && req.app.locals?.[EModelEndpoint.agents]) {
-    const { disableBuilder, capabilities, ..._rest } = req.app.locals[EModelEndpoint.agents];
+    const { disableBuilder, capabilities, allowedProviders, ..._rest } =
+      req.app.locals[EModelEndpoint.agents];
 
     mergedConfig[EModelEndpoint.agents] = {
       ...mergedConfig[EModelEndpoint.agents],
+      allowedProviders,
       disableBuilder,
       capabilities,
     };
@@ -72,4 +80,19 @@ async function getEndpointsConfig(req) {
   return endpointsConfig;
 }
 
-module.exports = { getEndpointsConfig };
+/**
+ * @param {ServerRequest} req
+ * @param {import('librechat-data-provider').AgentCapabilities} capability
+ * @returns {Promise<boolean>}
+ */
+const checkCapability = async (req, capability) => {
+  const isAgents = isAgentsEndpoint(req.body?.original_endpoint || req.body?.endpoint);
+  const endpointsConfig = await getEndpointsConfig(req);
+  const capabilities =
+    isAgents || endpointsConfig?.[EModelEndpoint.agents]?.capabilities != null
+      ? (endpointsConfig?.[EModelEndpoint.agents]?.capabilities ?? [])
+      : defaultAgentCapabilities;
+  return capabilities.includes(capability);
+};
+
+module.exports = { getEndpointsConfig, checkCapability };

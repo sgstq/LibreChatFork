@@ -7,10 +7,27 @@
  * @typedef {import('openai').OpenAI} OpenAI
  * @memberof typedefs
  */
+/**
+ * @exports OpenAIImagesResponse
+ * @typedef {Promise<import('openai').OpenAI.ImagesResponse>} OpenAIImagesResponse
+ * @memberof typedefs
+ */
 
 /**
  * @exports ServerRequest
  * @typedef {import('express').Request} ServerRequest
+ * @memberof typedefs
+ */
+
+/**
+ * @template T
+ * @typedef {ReadableStream<T> | NodeJS.ReadableStream} NodeStream
+ * @memberof typedefs
+ */
+
+/**
+ * @template T
+ * @typedef {(req: ServerRequest, filepath: string) => Promise<NodeStream<T>>} NodeStreamDownloader
  * @memberof typedefs
  */
 
@@ -23,6 +40,66 @@
 /**
  * @exports NextFunction
  * @typedef {import('express').NextFunction} NextFunction
+ * @memberof typedefs
+ */
+
+/**
+ * @exports Graph
+ * @typedef {import('@librechat/agents').Graph} Graph
+ * @memberof typedefs
+ */
+
+/**
+ * @exports StandardGraph
+ * @typedef {import('@librechat/agents').StandardGraph} StandardGraph
+ * @memberof typedefs
+ */
+
+/**
+ * @exports MessageContentComplex
+ * @typedef {import('@librechat/agents').MessageContentComplex} MessageContentComplex
+ * @memberof typedefs
+ */
+
+/**
+ * @exports EventHandler
+ * @typedef {import('@librechat/agents').EventHandler} EventHandler
+ * @memberof typedefs
+ */
+
+/**
+ * @exports ModelEndData
+ * @typedef {import('@librechat/agents').ModelEndData} ModelEndData
+ * @memberof typedefs
+ */
+
+/**
+ * @exports ToolEndData
+ * @typedef {import('@librechat/agents').ToolEndData} ToolEndData
+ * @memberof typedefs
+ */
+
+/**
+ * @exports ToolEndCallback
+ * @typedef {import('@librechat/agents').ToolEndCallback} ToolEndCallback
+ * @memberof typedefs
+ */
+
+/**
+ * @exports ChatModelStreamHandler
+ * @typedef {import('@librechat/agents').ChatModelStreamHandler} ChatModelStreamHandler
+ * @memberof typedefs
+ */
+
+/**
+ * @exports ContentAggregator
+ * @typedef {import('@librechat/agents').ContentAggregatorResult['aggregateContent']} ContentAggregator
+ * @memberof typedefs
+ */
+
+/**
+ * @exports GraphEvents
+ * @typedef {import('@librechat/agents').GraphEvents} GraphEvents
  * @memberof typedefs
  */
 
@@ -81,12 +158,6 @@
  */
 
 /**
- * @exports ToolEndData
- * @typedef {import('@librechat/agents').ToolEndData} ToolEndData
- * @memberof typedefs
- */
-
-/**
  * @exports BaseMessage
  * @typedef {import('@langchain/core/messages').BaseMessage} BaseMessage
  * @memberof typedefs
@@ -121,6 +192,8 @@
  * agent_index: number;
  * last_agent_index: number;
  * hide_sequential_outputs: boolean;
+ * version?: 'v1' | 'v2';
+ * streamMode?: string
  * }> & {
  * toolCall?: LangChainToolCall & { stepId?: string };
  * }} GraphRunnableConfig
@@ -400,6 +473,38 @@
 /**
  * @exports AgentToolCallDelta
  * @typedef {import('librechat-data-provider').Agents.ToolCallDelta} AgentToolCallDelta
+ * @memberof typedefs
+ */
+
+/**
+ * @exports ToolCallChunk
+ * @typedef {import('librechat-data-provider').Agents.ToolCallChunk} ToolCallChunk
+ * @memberof typedefs
+ */
+
+/**
+ * @exports MessageContentImageUrl
+ * @typedef {import('librechat-data-provider').Agents.MessageContentImageUrl} MessageContentImageUrl
+ * @memberof typedefs
+ */
+
+/** Web Search */
+
+/**
+ * @exports SearchResult
+ * @typedef {import('@librechat/agents').SearchResult} SearchResult
+ * @memberof typedefs
+ */
+
+/**
+ * @exports SearchResultData
+ * @typedef {import('@librechat/agents').SearchResultData} SearchResultData
+ * @memberof typedefs
+ */
+
+/**
+ * @exports ValidSource
+ * @typedef {import('librechat-data-provider').ValidSource} ValidSource
  * @memberof typedefs
  */
 
@@ -761,6 +866,29 @@
  */
 
 /**
+ * @exports MongoFile
+ * @typedef {import('@librechat/data-schemas').IMongoFile} MongoFile
+ * @memberof typedefs
+ */
+/**
+ * @exports IBalance
+ * @typedef {import('@librechat/data-schemas').IBalance} IBalance
+ * @memberof typedefs
+ */
+
+/**
+ * @exports MongoUser
+ * @typedef {import('@librechat/data-schemas').IUser} MongoUser
+ * @memberof typedefs
+ */
+
+/**
+ * @exports IPluginAuth
+ * @typedef {import('@librechat/data-schemas').IPluginAuth} IPluginAuth
+ * @memberof typedefs
+ */
+
+/**
  * @exports ObjectId
  * @typedef {import('mongoose').Types.ObjectId} ObjectId
  * @memberof typedefs
@@ -793,8 +921,9 @@
 /**
  * @typedef {Partial<ImageGenOptions> & {
  *   message?: string,
- *   signal?: AbortSignal
- *   memory?: ConversationSummaryBufferMemory
+ *   signal?: AbortSignal,
+ *   memory?: ConversationSummaryBufferMemory,
+ *   tool_resources?: AgentToolResources,
  * }} LoadToolOptions
  * @memberof typedefs
  */
@@ -802,6 +931,12 @@
 /**
  * @exports EModelEndpoint
  * @typedef {import('librechat-data-provider').EModelEndpoint} EModelEndpoint
+ * @memberof typedefs
+ */
+
+/**
+ * @exports TEndpointOption
+ * @typedef {import('librechat-data-provider').TEndpointOption} TEndpointOption
  * @memberof typedefs
  */
 
@@ -896,6 +1031,18 @@
  */
 
 /**
+ * @exports TEphemeralAgent
+ * @typedef {import('librechat-data-provider').TEphemeralAgent} TEphemeralAgent
+ * @memberof typedefs
+ */
+
+/**
+ * @exports TWebSearchKeys
+ * @typedef {import('librechat-data-provider').TWebSearchKeys} TWebSearchKeys
+ * @memberof typedefs
+ */
+
+/**
  * @exports AgentToolResources
  * @typedef {import('librechat-data-provider').AgentToolResources} AgentToolResources
  * @memberof typedefs
@@ -927,13 +1074,13 @@
 
 /**
  * @exports JsonSchemaType
- * @typedef {import('librechat-data-provider').JsonSchemaType} JsonSchemaType
+ * @typedef {import('@librechat/api').JsonSchemaType} JsonSchemaType
  * @memberof typedefs
  */
 
 /**
  * @exports MCPServers
- * @typedef {import('librechat-mcp').MCPServers} MCPServers
+ * @typedef {import('@librechat/api').MCPServers} MCPServers
  * @memberof typedefs
  */
 
@@ -945,31 +1092,31 @@
 
 /**
  * @exports MCPManager
- * @typedef {import('librechat-mcp').MCPManager} MCPManager
+ * @typedef {import('@librechat/api').MCPManager} MCPManager
  * @memberof typedefs
  */
 
 /**
  * @exports FlowStateManager
- * @typedef {import('librechat-mcp').FlowStateManager} FlowStateManager
+ * @typedef {import('@librechat/api').FlowStateManager} FlowStateManager
  * @memberof typedefs
  */
 
 /**
  * @exports LCAvailableTools
- * @typedef {import('librechat-mcp').LCAvailableTools} LCAvailableTools
+ * @typedef {import('@librechat/api').LCAvailableTools} LCAvailableTools
  * @memberof typedefs
  */
 
 /**
  * @exports LCTool
- * @typedef {import('librechat-mcp').LCTool} LCTool
+ * @typedef {import('@librechat/api').LCTool} LCTool
  * @memberof typedefs
  */
 
 /**
  * @exports FormattedContent
- * @typedef {import('librechat-mcp').FormattedContent} FormattedContent
+ * @typedef {import('@librechat/api').FormattedContent} FormattedContent
  * @memberof typedefs
  */
 
@@ -1092,7 +1239,7 @@
  * @typedef {Object} AgentClientOptions
  * @property {Agent} agent - The agent configuration object
  * @property {string} endpoint - The endpoint identifier for the agent
- * @property {Object} req - The request object
+ * @property {ServerRequest} req - The request object
  * @property {string} [name] - The username
  * @property {string} [modelLabel] - The label for the model being used
  * @property {number} [maxContextTokens] - Maximum number of tokens allowed in context
@@ -1356,7 +1503,6 @@
  * @property {boolean|{userProvide: boolean}} [anthropic] - Flag to indicate if Anthropic endpoint is user provided, or its configuration.
  * @property {boolean|{userProvide: boolean}} [google] - Flag to indicate if Google endpoint is user provided, or its configuration.
  * @property {boolean|{userProvide: boolean, userProvideURL: boolean, name: string}} [custom] - Custom Endpoint configuration.
- * @property {boolean|GptPlugins} [gptPlugins] - Configuration for GPT plugins.
  * @memberof typedefs
  */
 
@@ -1785,5 +1931,53 @@
 
 /**
  * @typedef {Promise<{ message: TMessage, conversation: TConversation }> | undefined} ClientDatabaseSavePromise
+ * @memberof typedefs
+ */
+
+/**
+ * @exports OCRImage
+ * @typedef {Object} OCRImage
+ * @property {string} id - The identifier of the image.
+ * @property {number} top_left_x - X-coordinate of the top left corner of the image.
+ * @property {number} top_left_y - Y-coordinate of the top left corner of the image.
+ * @property {number} bottom_right_x - X-coordinate of the bottom right corner of the image.
+ * @property {number} bottom_right_y - Y-coordinate of the bottom right corner of the image.
+ * @property {string} image_base64 - Base64-encoded image data.
+ * @memberof typedefs
+ */
+
+/**
+ * @exports PageDimensions
+ * @typedef {Object} PageDimensions
+ * @property {number} dpi - The dots per inch resolution of the page.
+ * @property {number} height - The height of the page in pixels.
+ * @property {number} width - The width of the page in pixels.
+ * @memberof typedefs
+ */
+
+/**
+ * @exports OCRPage
+ * @typedef {Object} OCRPage
+ * @property {number} index - The index of the page in the document.
+ * @property {string} markdown - The extracted text content of the page in markdown format.
+ * @property {OCRImage[]} images - Array of images found on the page.
+ * @property {PageDimensions} dimensions - The dimensions of the page.
+ * @memberof typedefs
+ */
+
+/**
+ * @exports OCRUsageInfo
+ * @typedef {Object} OCRUsageInfo
+ * @property {number} pages_processed - Number of pages processed in the document.
+ * @property {number} doc_size_bytes - Size of the document in bytes.
+ * @memberof typedefs
+ */
+
+/**
+ * @exports OCRResult
+ * @typedef {Object} OCRResult
+ * @property {OCRPage[]} pages - Array of pages extracted from the document.
+ * @property {string} model - The model used for OCR processing.
+ * @property {OCRUsageInfo} usage_info - Usage information for the OCR operation.
  * @memberof typedefs
  */

@@ -1,58 +1,101 @@
-// const { HttpsProxyAgent } = require('https-proxy-agent');
-// const {
-// Constants,
-// ImageDetail,
-// EModelEndpoint,
-// resolveHeaders,
-// validateVisionModel,
-// mapModelToAzureConfig,
-// } = require('librechat-data-provider');
-const { Callback, createMetadataAggregator } = require('@librechat/agents');
+require('events').EventEmitter.defaultMaxListeners = 100;
+const { logger } = require('@librechat/data-schemas');
+const { DynamicStructuredTool } = require('@langchain/core/tools');
+const { getBufferString, HumanMessage } = require('@langchain/core/messages');
+const {
+  sendEvent,
+  createRun,
+  Tokenizer,
+  checkAccess,
+  memoryInstructions,
+  formatContentStrings,
+  createMemoryProcessor,
+} = require('@librechat/api');
+const {
+  Callback,
+  Providers,
+  GraphEvents,
+  TitleMethod,
+  formatMessage,
+  formatAgentMessages,
+  getTokenCountForMessage,
+  createMetadataAggregator,
+} = require('@librechat/agents');
 const {
   Constants,
+  Permissions,
   VisionModes,
-  openAISchema,
   ContentTypes,
   EModelEndpoint,
-  KnownEndpoints,
-  anthropicSchema,
+  PermissionTypes,
   isAgentsEndpoint,
+  AgentCapabilities,
   bedrockInputSchema,
   removeNullishValues,
 } = require('librechat-data-provider');
 const {
-  formatMessage,
-  addCacheControl,
-  formatAgentMessages,
-  formatContentStrings,
-  createContextHandlers,
-} = require('~/app/clients/prompts');
+  findPluginAuthsByKeys,
+  getFormattedMemories,
+  deleteMemory,
+  setMemory,
+} = require('~/models');
+const { getMCPAuthMap, checkCapability, hasCustomUserVars } = require('~/server/services/Config');
+const { addCacheControl, createContextHandlers } = require('~/app/clients/prompts');
+const { initializeAgent } = require('~/server/services/Endpoints/agents/agent');
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
-const { getBufferString, HumanMessage } = require('@langchain/core/messages');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
-const { getCustomEndpointConfig } = require('~/server/services/Config');
-const Tokenizer = require('~/server/services/Tokenizer');
+const { getProviderConfig } = require('~/server/services/Endpoints');
 const BaseClient = require('~/app/clients/BaseClient');
-const { createRun } = require('./run');
-const { logger } = require('~/config');
+const { getRoleByName } = require('~/models/Role');
+const { loadAgent } = require('~/models/Agent');
+const { getMCPManager } = require('~/config');
 
-/** @typedef {import('@librechat/agents').MessageContentComplex} MessageContentComplex */
-/** @typedef {import('@langchain/core/runnables').RunnableConfig} RunnableConfig */
+const omitTitleOptions = new Set([
+  'stream',
+  'thinking',
+  'streaming',
+  'clientOptions',
+  'thinkingConfig',
+  'thinkingBudget',
+  'includeThoughts',
+  'maxOutputTokens',
+  'additionalModelRequestFields',
+]);
 
-const providerParsers = {
-  [EModelEndpoint.openAI]: openAISchema.parse,
-  [EModelEndpoint.azureOpenAI]: openAISchema.parse,
-  [EModelEndpoint.anthropic]: anthropicSchema.parse,
-  [EModelEndpoint.bedrock]: bedrockInputSchema.parse,
+/**
+ * @param {ServerRequest} req
+ * @param {Agent} agent
+ * @param {string} endpoint
+ */
+const payloadParser = ({ req, agent, endpoint }) => {
+  if (isAgentsEndpoint(endpoint)) {
+    return { model: undefined };
+  } else if (endpoint === EModelEndpoint.bedrock) {
+    const parsedValues = bedrockInputSchema.parse(agent.model_parameters);
+    if (parsedValues.thinking == null) {
+      parsedValues.thinking = false;
+    }
+    return parsedValues;
+  }
+  return req.body.endpointOption.model_parameters;
 };
 
-const legacyContentEndpoints = new Set([KnownEndpoints.groq, KnownEndpoints.deepseek]);
+const noSystemModelRegex = [/\b(o1-preview|o1-mini|amazon\.titan-text)\b/gi];
 
-const noSystemModelRegex = [/\bo1\b/gi];
+function createTokenCounter(encoding) {
+  return function (message) {
+    const countTokens = (text) => Tokenizer.getTokenCount(text, encoding);
+    return getTokenCountForMessage(message, countTokens);
+  };
+}
 
-// const { processMemory, memoryInstructions } = require('~/server/services/Endpoints/agents/memory');
-// const { getFormattedMemories } = require('~/models/Memory');
-// const { getCurrentDateTime } = require('~/utils');
+function logToolError(graph, error, toolId) {
+  logger.error(
+    '[api/server/controllers/agents/client.js #chatCompletion] Tool Error',
+    error,
+    toolId,
+  );
+}
 
 class AgentClient extends BaseClient {
   constructor(options = {}) {
@@ -99,6 +142,10 @@ class AgentClient extends BaseClient {
     this.outputTokensKey = 'output_tokens';
     /** @type {UsageMetadata} */
     this.usage;
+    /** @type {Record<string, number>} */
+    this.indexTokenCountMap = {};
+    /** @type {(messages: BaseMessage[]) => Promise<void>} */
+    this.processMemory;
   }
 
   /**
@@ -113,89 +160,25 @@ class AgentClient extends BaseClient {
   }
 
   /**
-   *
-   * Checks if the model is a vision model based on request attachments and sets the appropriate options:
-   * - Sets `this.modelOptions.model` to `gpt-4-vision-preview` if the request is a vision request.
-   * - Sets `this.isVisionModel` to `true` if vision request.
-   * - Deletes `this.modelOptions.stop` if vision request.
+   * `AgentClient` is not opinionated about vision requests, so we don't do anything here
    * @param {MongoFile[]} attachments
    */
-  checkVisionRequest(attachments) {
-    logger.info(
-      '[api/server/controllers/agents/client.js #checkVisionRequest] not implemented',
-      attachments,
-    );
-    // if (!attachments) {
-    //   return;
-    // }
-
-    // const availableModels = this.options.modelsConfig?.[this.options.endpoint];
-    // if (!availableModels) {
-    //   return;
-    // }
-
-    // let visionRequestDetected = false;
-    // for (const file of attachments) {
-    //   if (file?.type?.includes('image')) {
-    //     visionRequestDetected = true;
-    //     break;
-    //   }
-    // }
-    // if (!visionRequestDetected) {
-    //   return;
-    // }
-
-    // this.isVisionModel = validateVisionModel({ model: this.modelOptions.model, availableModels });
-    // if (this.isVisionModel) {
-    //   delete this.modelOptions.stop;
-    //   return;
-    // }
-
-    // for (const model of availableModels) {
-    //   if (!validateVisionModel({ model, availableModels })) {
-    //     continue;
-    //   }
-    //   this.modelOptions.model = model;
-    //   this.isVisionModel = true;
-    //   delete this.modelOptions.stop;
-    //   return;
-    // }
-
-    // if (!availableModels.includes(this.defaultVisionModel)) {
-    //   return;
-    // }
-    // if (!validateVisionModel({ model: this.defaultVisionModel, availableModels })) {
-    //   return;
-    // }
-
-    // this.modelOptions.model = this.defaultVisionModel;
-    // this.isVisionModel = true;
-    // delete this.modelOptions.stop;
-  }
+  checkVisionRequest() {}
 
   getSaveOptions() {
-    const parseOptions = providerParsers[this.options.endpoint];
-    let runOptions =
-      this.options.endpoint === EModelEndpoint.agents
-        ? {
-          model: undefined,
-          // TODO:
-          // would need to be override settings; otherwise, model needs to be undefined
-          // model: this.override.model,
-          // instructions: this.override.instructions,
-          // additional_instructions: this.override.additional_instructions,
-        }
-        : {};
-
-    if (parseOptions) {
-      try {
-        runOptions = parseOptions(this.options.agent.model_parameters);
-      } catch (error) {
-        logger.error(
-          '[api/server/controllers/agents/client.js #getSaveOptions] Error parsing options',
-          error,
-        );
-      }
+    // TODO:
+    // would need to be override settings; otherwise, model needs to be undefined
+    // model: this.override.model,
+    // instructions: this.override.instructions,
+    // additional_instructions: this.override.additional_instructions,
+    let runOptions = {};
+    try {
+      runOptions = payloadParser(this.options);
+    } catch (error) {
+      logger.error(
+        '[api/server/controllers/agents/client.js #getSaveOptions] Error parsing options',
+        error,
+      );
     }
 
     return removeNullishValues(
@@ -223,14 +206,23 @@ class AgentClient extends BaseClient {
     };
   }
 
+  /**
+   *
+   * @param {TMessage} message
+   * @param {Array<MongoFile>} attachments
+   * @returns {Promise<Array<Partial<MongoFile>>>}
+   */
   async addImageURLs(message, attachments) {
-    const { files, image_urls } = await encodeAndFormat(
+    const { files, text, image_urls } = await encodeAndFormat(
       this.options.req,
       attachments,
       this.options.agent.provider,
       VisionModes.agents,
     );
     message.image_urls = image_urls.length ? image_urls : undefined;
+    if (text && text.length) {
+      message.ocr = text;
+    }
     return files;
   }
 
@@ -255,24 +247,6 @@ class AgentClient extends BaseClient {
       .filter(Boolean)
       .join('\n')
       .trim();
-    // this.systemMessage = getCurrentDateTime();
-    // const { withKeys, withoutKeys } = await getFormattedMemories({
-    //   userId: this.options.req.user.id,
-    // });
-    // processMemory({
-    //   userId: this.options.req.user.id,
-    //   message: this.options.req.body.text,
-    //   parentMessageId,
-    //   memory: withKeys,
-    //   thread_id: this.conversationId,
-    // }).catch((error) => {
-    //   logger.error('Memory Agent failed to process memory', error);
-    // });
-
-    // this.systemMessage += '\n\n' + memoryInstructions;
-    // if (withoutKeys) {
-    //   this.systemMessage += `\n\n# Existing memory about the user:\n${withoutKeys}`;
-    // }
 
     if (this.options.attachments) {
       const attachments = await this.options.attachments;
@@ -308,7 +282,21 @@ class AgentClient extends BaseClient {
         assistantName: this.options?.modelLabel,
       });
 
-      const needsTokenCount = this.contextStrategy && !orderedMessages[i].tokenCount;
+      if (message.ocr && i !== orderedMessages.length - 1) {
+        if (typeof formattedMessage.content === 'string') {
+          formattedMessage.content = message.ocr + '\n' + formattedMessage.content;
+        } else {
+          const textPart = formattedMessage.content.find((part) => part.type === 'text');
+          textPart
+            ? (textPart.text = message.ocr + '\n' + textPart.text)
+            : formattedMessage.content.unshift({ type: 'text', text: message.ocr });
+        }
+      } else if (message.ocr && i === orderedMessages.length - 1) {
+        systemContent = [systemContent, message.ocr].join('\n');
+      }
+
+      const needsTokenCount =
+        (this.contextStrategy && !orderedMessages[i].tokenCount) || message.ocr;
 
       /* If tokens were never counted, or, is a Vision request and the message has files, count again */
       if (needsTokenCount || (this.isVisionModel && (message.image_urls || message.files))) {
@@ -323,7 +311,9 @@ class AgentClient extends BaseClient {
             this.contextHandlers?.processFile(file);
             continue;
           }
-
+          if (file.metadata?.fileIdentifier) {
+            continue;
+          }
           // orderedMessages[i].tokenCount += this.calculateImageTokenCost({
           //   width: file.width,
           //   height: file.height,
@@ -340,6 +330,37 @@ class AgentClient extends BaseClient {
       systemContent = this.augmentedPrompt + systemContent;
     }
 
+    // Inject MCP server instructions if available
+    const ephemeralAgent = this.options.req.body.ephemeralAgent;
+    let mcpServers = [];
+
+    // Check for ephemeral agent MCP servers
+    if (ephemeralAgent && ephemeralAgent.mcp && ephemeralAgent.mcp.length > 0) {
+      mcpServers = ephemeralAgent.mcp;
+    }
+    // Check for regular agent MCP tools
+    else if (this.options.agent && this.options.agent.tools) {
+      mcpServers = this.options.agent.tools
+        .filter(
+          (tool) =>
+            tool instanceof DynamicStructuredTool && tool.name.includes(Constants.mcp_delimiter),
+        )
+        .map((tool) => tool.name.split(Constants.mcp_delimiter).pop())
+        .filter(Boolean);
+    }
+
+    if (mcpServers.length > 0) {
+      try {
+        const mcpInstructions = getMCPManager().formatInstructionsForContext(mcpServers);
+        if (mcpInstructions) {
+          systemContent = [systemContent, mcpInstructions].filter(Boolean).join('\n\n');
+          logger.debug('[AgentClient] Injected MCP instructions for servers:', mcpServers);
+        }
+      } catch (error) {
+        logger.error('[AgentClient] Failed to inject MCP instructions:', error);
+      }
+    }
+
     if (systemContent) {
       this.options.agent.instructions = systemContent;
     }
@@ -354,6 +375,10 @@ class AgentClient extends BaseClient {
       }));
     }
 
+    for (let i = 0; i < messages.length; i++) {
+      this.indexTokenCountMap[i] = messages[i].tokenCount;
+    }
+
     const result = {
       tokenCountMap,
       prompt: payload,
@@ -365,7 +390,196 @@ class AgentClient extends BaseClient {
       opts.getReqData({ promptTokens });
     }
 
+    const withoutKeys = await this.useMemory();
+    if (withoutKeys) {
+      systemContent += `${memoryInstructions}\n\n# Existing memory about the user:\n${withoutKeys}`;
+    }
+
+    if (systemContent) {
+      this.options.agent.instructions = systemContent;
+    }
+
     return result;
+  }
+
+  /**
+   * @returns {Promise<string | undefined>}
+   */
+  async useMemory() {
+    const user = this.options.req.user;
+    if (user.personalization?.memories === false) {
+      return;
+    }
+    const hasAccess = await checkAccess({
+      user,
+      permissionType: PermissionTypes.MEMORIES,
+      permissions: [Permissions.USE],
+      getRoleByName,
+    });
+
+    if (!hasAccess) {
+      logger.debug(
+        `[api/server/controllers/agents/client.js #useMemory] User ${user.id} does not have USE permission for memories`,
+      );
+      return;
+    }
+    /** @type {TCustomConfig['memory']} */
+    const memoryConfig = this.options.req?.app?.locals?.memory;
+    if (!memoryConfig || memoryConfig.disabled === true) {
+      return;
+    }
+
+    /** @type {Agent} */
+    let prelimAgent;
+    const allowedProviders = new Set(
+      this.options.req?.app?.locals?.[EModelEndpoint.agents]?.allowedProviders,
+    );
+    try {
+      if (memoryConfig.agent?.id != null && memoryConfig.agent.id !== this.options.agent.id) {
+        prelimAgent = await loadAgent({
+          req: this.options.req,
+          agent_id: memoryConfig.agent.id,
+          endpoint: EModelEndpoint.agents,
+        });
+      } else if (
+        memoryConfig.agent?.id == null &&
+        memoryConfig.agent?.model != null &&
+        memoryConfig.agent?.provider != null
+      ) {
+        prelimAgent = { id: Constants.EPHEMERAL_AGENT_ID, ...memoryConfig.agent };
+      }
+    } catch (error) {
+      logger.error(
+        '[api/server/controllers/agents/client.js #useMemory] Error loading agent for memory',
+        error,
+      );
+    }
+
+    const agent = await initializeAgent({
+      req: this.options.req,
+      res: this.options.res,
+      agent: prelimAgent,
+      allowedProviders,
+      endpointOption: {
+        endpoint:
+          prelimAgent.id !== Constants.EPHEMERAL_AGENT_ID
+            ? EModelEndpoint.agents
+            : memoryConfig.agent?.provider,
+      },
+    });
+
+    if (!agent) {
+      logger.warn(
+        '[api/server/controllers/agents/client.js #useMemory] No agent found for memory',
+        memoryConfig,
+      );
+      return;
+    }
+
+    const llmConfig = Object.assign(
+      {
+        provider: agent.provider,
+        model: agent.model,
+      },
+      agent.model_parameters,
+    );
+
+    /** @type {import('@librechat/api').MemoryConfig} */
+    const config = {
+      validKeys: memoryConfig.validKeys,
+      instructions: agent.instructions,
+      llmConfig,
+      tokenLimit: memoryConfig.tokenLimit,
+    };
+
+    const userId = this.options.req.user.id + '';
+    const messageId = this.responseMessageId + '';
+    const conversationId = this.conversationId + '';
+    const [withoutKeys, processMemory] = await createMemoryProcessor({
+      userId,
+      config,
+      messageId,
+      conversationId,
+      memoryMethods: {
+        setMemory,
+        deleteMemory,
+        getFormattedMemories,
+      },
+      res: this.options.res,
+    });
+
+    this.processMemory = processMemory;
+    return withoutKeys;
+  }
+
+  /**
+   * Filters out image URLs from message content
+   * @param {BaseMessage} message - The message to filter
+   * @returns {BaseMessage} - A new message with image URLs removed
+   */
+  filterImageUrls(message) {
+    if (!message.content || typeof message.content === 'string') {
+      return message;
+    }
+
+    if (Array.isArray(message.content)) {
+      const filteredContent = message.content.filter(
+        (part) => part.type !== ContentTypes.IMAGE_URL,
+      );
+
+      if (filteredContent.length === 1 && filteredContent[0].type === ContentTypes.TEXT) {
+        const MessageClass = message.constructor;
+        return new MessageClass({
+          content: filteredContent[0].text,
+          additional_kwargs: message.additional_kwargs,
+        });
+      }
+
+      const MessageClass = message.constructor;
+      return new MessageClass({
+        content: filteredContent,
+        additional_kwargs: message.additional_kwargs,
+      });
+    }
+
+    return message;
+  }
+
+  /**
+   * @param {BaseMessage[]} messages
+   * @returns {Promise<void | (TAttachment | null)[]>}
+   */
+  async runMemory(messages) {
+    try {
+      if (this.processMemory == null) {
+        return;
+      }
+      /** @type {TCustomConfig['memory']} */
+      const memoryConfig = this.options.req?.app?.locals?.memory;
+      const messageWindowSize = memoryConfig?.messageWindowSize ?? 5;
+
+      let messagesToProcess = [...messages];
+      if (messages.length > messageWindowSize) {
+        for (let i = messages.length - messageWindowSize; i >= 0; i--) {
+          const potentialWindow = messages.slice(i, i + messageWindowSize);
+          if (potentialWindow[0]?.role === 'user') {
+            messagesToProcess = [...potentialWindow];
+            break;
+          }
+        }
+
+        if (messagesToProcess.length === messages.length) {
+          messagesToProcess = [...messages.slice(-messageWindowSize)];
+        }
+      }
+
+      const filteredMessages = messagesToProcess.map((msg) => this.filterImageUrls(msg));
+      const bufferString = getBufferString(filteredMessages);
+      const bufferMessage = new HumanMessage(`# Current Chat:\n\n${bufferString}`);
+      return await this.processMemory([bufferMessage]);
+    } catch (error) {
+      logger.error('Memory Agent failed to process memory', error);
+    }
   }
 
   /** @type {sendCompletion} */
@@ -438,6 +652,7 @@ class AgentClient extends BaseClient {
             err,
           );
         });
+        continue;
       }
       spendTokens(txMetadata, {
         promptTokens: usage.input_tokens,
@@ -505,120 +720,40 @@ class AgentClient extends BaseClient {
   }
 
   async chatCompletion({ payload, abortController = null }) {
+    /** @type {Partial<GraphRunnableConfig>} */
+    let config;
+    /** @type {ReturnType<createRun>} */
+    let run;
+    /** @type {Promise<(TAttachment | null)[] | undefined>} */
+    let memoryPromise;
     try {
       if (!abortController) {
         abortController = new AbortController();
       }
 
-      // if (this.options.headers) {
-      //   opts.defaultHeaders = { ...opts.defaultHeaders, ...this.options.headers };
-      // }
+      /** @type {TCustomConfig['endpoints']['agents']} */
+      const agentsEConfig = this.options.req.app.locals[EModelEndpoint.agents];
 
-      // if (this.options.proxy) {
-      //   opts.httpAgent = new HttpsProxyAgent(this.options.proxy);
-      // }
-
-      // if (this.isVisionModel) {
-      //   modelOptions.max_tokens = 4000;
-      // }
-
-      // /** @type {TAzureConfig | undefined} */
-      // const azureConfig = this.options?.req?.app?.locals?.[EModelEndpoint.azureOpenAI];
-
-      // if (
-      //   (this.azure && this.isVisionModel && azureConfig) ||
-      //   (azureConfig && this.isVisionModel && this.options.endpoint === EModelEndpoint.azureOpenAI)
-      // ) {
-      //   const { modelGroupMap, groupMap } = azureConfig;
-      //   const {
-      //     azureOptions,
-      //     baseURL,
-      //     headers = {},
-      //     serverless,
-      //   } = mapModelToAzureConfig({
-      //     modelName: modelOptions.model,
-      //     modelGroupMap,
-      //     groupMap,
-      //   });
-      //   opts.defaultHeaders = resolveHeaders(headers);
-      //   this.langchainProxy = extractBaseURL(baseURL);
-      //   this.apiKey = azureOptions.azureOpenAIApiKey;
-
-      //   const groupName = modelGroupMap[modelOptions.model].group;
-      //   this.options.addParams = azureConfig.groupMap[groupName].addParams;
-      //   this.options.dropParams = azureConfig.groupMap[groupName].dropParams;
-      //   // Note: `forcePrompt` not re-assigned as only chat models are vision models
-
-      //   this.azure = !serverless && azureOptions;
-      //   this.azureEndpoint =
-      //     !serverless && genAzureChatCompletion(this.azure, modelOptions.model, this);
-      // }
-
-      // if (this.azure || this.options.azure) {
-      //   /* Azure Bug, extremely short default `max_tokens` response */
-      //   if (!modelOptions.max_tokens && modelOptions.model === 'gpt-4-vision-preview') {
-      //     modelOptions.max_tokens = 4000;
-      //   }
-
-      //   /* Azure does not accept `model` in the body, so we need to remove it. */
-      //   delete modelOptions.model;
-
-      //   opts.baseURL = this.langchainProxy
-      //     ? constructAzureURL({
-      //       baseURL: this.langchainProxy,
-      //       azureOptions: this.azure,
-      //     })
-      //     : this.azureEndpoint.split(/(?<!\/)\/(chat|completion)\//)[0];
-
-      //   opts.defaultQuery = { 'api-version': this.azure.azureOpenAIApiVersion };
-      //   opts.defaultHeaders = { ...opts.defaultHeaders, 'api-key': this.apiKey };
-      // }
-
-      // if (process.env.OPENAI_ORGANIZATION) {
-      //   opts.organization = process.env.OPENAI_ORGANIZATION;
-      // }
-
-      // if (this.options.addParams && typeof this.options.addParams === 'object') {
-      //   modelOptions = {
-      //     ...modelOptions,
-      //     ...this.options.addParams,
-      //   };
-      //   logger.debug('[api/server/controllers/agents/client.js #chatCompletion] added params', {
-      //     addParams: this.options.addParams,
-      //     modelOptions,
-      //   });
-      // }
-
-      // if (this.options.dropParams && Array.isArray(this.options.dropParams)) {
-      //   this.options.dropParams.forEach((param) => {
-      //     delete modelOptions[param];
-      //   });
-      //   logger.debug('[api/server/controllers/agents/client.js #chatCompletion] dropped params', {
-      //     dropParams: this.options.dropParams,
-      //     modelOptions,
-      //   });
-      // }
-
-      /** @type {Partial<RunnableConfig> & { version: 'v1' | 'v2'; run_id?: string; streamMode: string }} */
-      const config = {
+      config = {
         configurable: {
           thread_id: this.conversationId,
           last_agent_index: this.agentConfigs?.size ?? 0,
+          user_id: this.user ?? this.options.req.user?.id,
           hide_sequential_outputs: this.options.agent.hide_sequential_outputs,
+          user: this.options.req.user,
         },
-        recursionLimit: this.options.req.app.locals[EModelEndpoint.agents]?.recursionLimit,
+        recursionLimit: agentsEConfig?.recursionLimit ?? 25,
         signal: abortController.signal,
         streamMode: 'values',
         version: 'v2',
       };
 
-      const initialMessages = formatAgentMessages(payload);
-      if (legacyContentEndpoints.has(this.options.agent.endpoint)) {
-        formatContentStrings(initialMessages);
-      }
-
-      /** @type {ReturnType<createRun>} */
-      let run;
+      const toolSet = new Set((this.options.agent.tools ?? []).map((tool) => tool && tool.name));
+      let { messages: initialMessages, indexTokenCountMap } = formatAgentMessages(
+        payload,
+        this.indexTokenCountMap,
+        toolSet,
+      );
 
       /**
        *
@@ -626,11 +761,25 @@ class AgentClient extends BaseClient {
        * @param {BaseMessage[]} messages
        * @param {number} [i]
        * @param {TMessageContentParts[]} [contentData]
+       * @param {Record<string, number>} [currentIndexCountMap]
        */
-      const runAgent = async (agent, _messages, i = 0, contentData = []) => {
+      const runAgent = async (agent, _messages, i = 0, contentData = [], _currentIndexCountMap) => {
         config.configurable.model = agent.model_parameters.model;
+        const currentIndexCountMap = _currentIndexCountMap ?? indexTokenCountMap;
         if (i > 0) {
           this.model = agent.model_parameters.model;
+        }
+        if (i > 0 && config.signal == null) {
+          config.signal = abortController.signal;
+        }
+        if (agent.recursion_limit && typeof agent.recursion_limit === 'number') {
+          config.recursionLimit = agent.recursion_limit;
+        }
+        if (
+          agentsEConfig?.maxRecursionLimit &&
+          config.recursionLimit > agentsEConfig?.maxRecursionLimit
+        ) {
+          config.recursionLimit = agentsEConfig?.maxRecursionLimit;
         }
         config.configurable.agent_id = agent.id;
         config.configurable.name = agent.name;
@@ -660,21 +809,30 @@ class AgentClient extends BaseClient {
         }
 
         if (noSystemMessages === true && systemContent?.length) {
-          let latestMessage = _messages.pop().content;
+          const latestMessageContent = _messages.pop().content;
           if (typeof latestMessage !== 'string') {
-            latestMessage = latestMessage[0].text;
+            latestMessageContent[0].text = [systemContent, latestMessageContent[0].text].join('\n');
+            _messages.push(new HumanMessage({ content: latestMessageContent }));
+          } else {
+            const text = [systemContent, latestMessageContent].join('\n');
+            _messages.push(new HumanMessage(text));
           }
-          latestMessage = [systemContent, latestMessage].join('\n');
-          _messages.push(new HumanMessage(latestMessage));
         }
 
         let messages = _messages;
+        if (agent.useLegacyContent === true) {
+          messages = formatContentStrings(messages);
+        }
         if (
           agent.model_parameters?.clientOptions?.defaultHeaders?.['anthropic-beta']?.includes(
             'prompt-caching',
           )
         ) {
           messages = addCacheControl(messages);
+        }
+
+        if (i === 0) {
+          memoryPromise = this.runMemory(messages);
         }
 
         run = await createRun({
@@ -694,27 +852,60 @@ class AgentClient extends BaseClient {
         }
 
         if (contentData.length) {
+          const agentUpdate = {
+            type: ContentTypes.AGENT_UPDATE,
+            [ContentTypes.AGENT_UPDATE]: {
+              index: contentData.length,
+              runId: this.responseMessageId,
+              agentId: agent.id,
+            },
+          };
+          const streamData = {
+            event: GraphEvents.ON_AGENT_UPDATE,
+            data: agentUpdate,
+          };
+          this.options.aggregateContent(streamData);
+          sendEvent(this.options.res, streamData);
+          contentData.push(agentUpdate);
           run.Graph.contentData = contentData;
+        }
+
+        try {
+          if (await hasCustomUserVars()) {
+            config.configurable.userMCPAuthMap = await getMCPAuthMap({
+              tools: agent.tools,
+              userId: this.options.req.user.id,
+              findPluginAuthsByKeys,
+            });
+          }
+        } catch (err) {
+          logger.error(
+            `[api/server/controllers/agents/client.js #chatCompletion] Error getting custom user vars for agent ${agent.id}`,
+            err,
+          );
         }
 
         await run.processStream({ messages }, config, {
           keepContent: i !== 0,
+          tokenCounter: createTokenCounter(this.getEncoding()),
+          indexTokenCountMap: currentIndexCountMap,
+          maxContextTokens: agent.maxContextTokens,
           callbacks: {
-            [Callback.TOOL_ERROR]: (graph, error, toolId) => {
-              logger.error(
-                '[api/server/controllers/agents/client.js #chatCompletion] Tool Error',
-                error,
-                toolId,
-              );
-            },
+            [Callback.TOOL_ERROR]: logToolError,
           },
         });
+
+        config.signal = null;
       };
 
       await runAgent(this.options.agent, initialMessages);
-
       let finalContentStart = 0;
-      if (this.agentConfigs && this.agentConfigs.size > 0) {
+      if (
+        this.agentConfigs &&
+        this.agentConfigs.size > 0 &&
+        (await checkCapability(this.options.req, AgentCapabilities.chain))
+      ) {
+        const windowSize = 5;
         let latestMessage = initialMessages.pop().content;
         if (typeof latestMessage !== 'string') {
           latestMessage = latestMessage[0].text;
@@ -722,7 +913,18 @@ class AgentClient extends BaseClient {
         let i = 1;
         let runMessages = [];
 
-        const lastFiveMessages = initialMessages.slice(-5);
+        const windowIndexCountMap = {};
+        const windowMessages = initialMessages.slice(-windowSize);
+        let currentIndex = 4;
+        for (let i = initialMessages.length - 1; i >= 0; i--) {
+          windowIndexCountMap[currentIndex] = indexTokenCountMap[i];
+          currentIndex--;
+          if (currentIndex < 0) {
+            break;
+          }
+        }
+        const encoding = this.getEncoding();
+        const tokenCounter = createTokenCounter(encoding);
         for (const [agentId, agent] of this.agentConfigs) {
           if (abortController.signal.aborted === true) {
             break;
@@ -757,7 +959,9 @@ class AgentClient extends BaseClient {
           }
           try {
             const contextMessages = [];
-            for (const message of lastFiveMessages) {
+            const runIndexCountMap = {};
+            for (let i = 0; i < windowMessages.length; i++) {
+              const message = windowMessages[i];
               const messageType = message._getType();
               if (
                 (!agent.tools || agent.tools.length === 0) &&
@@ -765,11 +969,13 @@ class AgentClient extends BaseClient {
               ) {
                 continue;
               }
-
+              runIndexCountMap[contextMessages.length] = windowIndexCountMap[i];
               contextMessages.push(message);
             }
-            const currentMessages = [...contextMessages, new HumanMessage(bufferString)];
-            await runAgent(agent, currentMessages, i, contentData);
+            const bufferMessage = new HumanMessage(bufferString);
+            runIndexCountMap[contextMessages.length] = tokenCounter(bufferMessage);
+            const currentMessages = [...contextMessages, bufferMessage];
+            await runAgent(agent, currentMessages, i, contentData, runIndexCountMap);
           } catch (err) {
             logger.error(
               `[api/server/controllers/agents/client.js #chatCompletion] Error running agent ${agentId} (${i})`,
@@ -780,6 +986,7 @@ class AgentClient extends BaseClient {
         }
       }
 
+      /** Note: not implemented */
       if (config.configurable.hide_sequential_outputs !== true) {
         finalContentStart = 0;
       }
@@ -795,6 +1002,12 @@ class AgentClient extends BaseClient {
       });
 
       try {
+        if (memoryPromise) {
+          const attachments = await memoryPromise;
+          if (attachments && attachments.length > 0) {
+            this.artifactPromises.push(...attachments);
+          }
+        }
         await this.recordCollectedUsage({ context: 'message' });
       } catch (err) {
         logger.error(
@@ -803,6 +1016,12 @@ class AgentClient extends BaseClient {
         );
       }
     } catch (err) {
+      if (memoryPromise) {
+        const attachments = await memoryPromise;
+        if (attachments && attachments.length > 0) {
+          this.artifactPromises.push(...attachments);
+        }
+      }
       logger.error(
         '[api/server/controllers/agents/client.js #sendCompletion] Operation aborted',
         err,
@@ -812,7 +1031,10 @@ class AgentClient extends BaseClient {
           '[api/server/controllers/agents/client.js #sendCompletion] Unhandled error type',
           err,
         );
-        throw err;
+        this.contentParts.push({
+          type: ContentTypes.ERROR,
+          [ContentTypes.ERROR]: `An error occurred while processing the request${err?.message ? `: ${err.message}` : ''}`,
+        });
       }
     }
   }
@@ -823,19 +1045,46 @@ class AgentClient extends BaseClient {
    * @param {string} params.text
    * @param {string} params.conversationId
    */
-  async titleConvo({ text }) {
+  async titleConvo({ text, abortController }) {
     if (!this.run) {
       throw new Error('Run not initialized');
     }
     const { handleLLMEnd, collected: collectedMetadata } = createMetadataAggregator();
+    const { req, res, agent } = this.options;
+    let endpoint = agent.endpoint;
+
     /** @type {import('@librechat/agents').ClientOptions} */
-    const clientOptions = {
+    let clientOptions = {
       maxTokens: 75,
+      model: agent.model || agent.model_parameters.model,
     };
-    let endpointConfig = this.options.req.app.locals[this.options.agent.endpoint];
+
+    let titleProviderConfig = await getProviderConfig(endpoint);
+
+    /** @type {TEndpoint | undefined} */
+    const endpointConfig =
+      req.app.locals.all ?? req.app.locals[endpoint] ?? titleProviderConfig.customEndpointConfig;
     if (!endpointConfig) {
-      endpointConfig = await getCustomEndpointConfig(this.options.agent.endpoint);
+      logger.warn(
+        '[api/server/controllers/agents/client.js #titleConvo] Error getting endpoint config',
+      );
     }
+
+    if (endpointConfig?.titleEndpoint && endpointConfig.titleEndpoint !== endpoint) {
+      try {
+        titleProviderConfig = await getProviderConfig(endpointConfig.titleEndpoint);
+        endpoint = endpointConfig.titleEndpoint;
+      } catch (error) {
+        logger.warn(
+          `[api/server/controllers/agents/client.js #titleConvo] Error getting title endpoint config for ${endpointConfig.titleEndpoint}, falling back to default`,
+          error,
+        );
+        // Fall back to original provider config
+        endpoint = agent.endpoint;
+        titleProviderConfig = await getProviderConfig(endpoint);
+      }
+    }
+
     if (
       endpointConfig &&
       endpointConfig.titleModel &&
@@ -843,12 +1092,68 @@ class AgentClient extends BaseClient {
     ) {
       clientOptions.model = endpointConfig.titleModel;
     }
+
+    const options = await titleProviderConfig.getOptions({
+      req,
+      res,
+      optionsOnly: true,
+      overrideEndpoint: endpoint,
+      overrideModel: clientOptions.model,
+      endpointOption: { model_parameters: clientOptions },
+    });
+
+    let provider = options.provider ?? titleProviderConfig.overrideProvider ?? agent.provider;
+    if (
+      endpoint === EModelEndpoint.azureOpenAI &&
+      options.llmConfig?.azureOpenAIApiInstanceName == null
+    ) {
+      provider = Providers.OPENAI;
+    } else if (
+      endpoint === EModelEndpoint.azureOpenAI &&
+      options.llmConfig?.azureOpenAIApiInstanceName != null &&
+      provider !== Providers.AZURE
+    ) {
+      provider = Providers.AZURE;
+    }
+
+    /** @type {import('@librechat/agents').ClientOptions} */
+    clientOptions = { ...options.llmConfig };
+    if (options.configOptions) {
+      clientOptions.configuration = options.configOptions;
+    }
+
+    // Ensure maxTokens is set for non-o1 models
+    if (!/\b(o\d)\b/i.test(clientOptions.model) && !clientOptions.maxTokens) {
+      clientOptions.maxTokens = 75;
+    } else if (/\b(o\d)\b/i.test(clientOptions.model) && clientOptions.maxTokens != null) {
+      delete clientOptions.maxTokens;
+    }
+
+    clientOptions = Object.assign(
+      Object.fromEntries(
+        Object.entries(clientOptions).filter(([key]) => !omitTitleOptions.has(key)),
+      ),
+    );
+
+    if (
+      provider === Providers.GOOGLE &&
+      (endpointConfig?.titleMethod === TitleMethod.FUNCTIONS ||
+        endpointConfig?.titleMethod === TitleMethod.STRUCTURED)
+    ) {
+      clientOptions.json = true;
+    }
+
     try {
       const titleResult = await this.run.generateTitle({
+        provider,
+        clientOptions,
         inputText: text,
         contentParts: this.contentParts,
-        clientOptions,
+        titleMethod: endpointConfig?.titleMethod,
+        titlePrompt: endpointConfig?.titlePrompt,
+        titlePromptTemplate: endpointConfig?.titlePromptTemplate,
         chainOptions: {
+          signal: abortController.signal,
           callbacks: [
             {
               handleLLMEnd,
@@ -861,8 +1166,10 @@ class AgentClient extends BaseClient {
         let input_tokens, output_tokens;
 
         if (item.usage) {
-          input_tokens = item.usage.input_tokens || item.usage.inputTokens;
-          output_tokens = item.usage.output_tokens || item.usage.outputTokens;
+          input_tokens =
+            item.usage.prompt_tokens || item.usage.input_tokens || item.usage.inputTokens;
+          output_tokens =
+            item.usage.completion_tokens || item.usage.output_tokens || item.usage.outputTokens;
         } else if (item.tokenUsage) {
           input_tokens = item.tokenUsage.promptTokens;
           output_tokens = item.tokenUsage.completionTokens;
@@ -874,7 +1181,7 @@ class AgentClient extends BaseClient {
         };
       });
 
-      this.recordCollectedUsage({
+      await this.recordCollectedUsage({
         model: clientOptions.model,
         context: 'title',
         collectedUsage,
@@ -892,8 +1199,52 @@ class AgentClient extends BaseClient {
     }
   }
 
-  /** Silent method, as `recordCollectedUsage` is used instead */
-  async recordTokenUsage() {}
+  /**
+   * @param {object} params
+   * @param {number} params.promptTokens
+   * @param {number} params.completionTokens
+   * @param {OpenAIUsageMetadata} [params.usage]
+   * @param {string} [params.model]
+   * @param {string} [params.context='message']
+   * @returns {Promise<void>}
+   */
+  async recordTokenUsage({ model, promptTokens, completionTokens, usage, context = 'message' }) {
+    try {
+      await spendTokens(
+        {
+          model,
+          context,
+          conversationId: this.conversationId,
+          user: this.user ?? this.options.req.user?.id,
+          endpointTokenConfig: this.options.endpointTokenConfig,
+        },
+        { promptTokens, completionTokens },
+      );
+
+      if (
+        usage &&
+        typeof usage === 'object' &&
+        'reasoning_tokens' in usage &&
+        typeof usage.reasoning_tokens === 'number'
+      ) {
+        await spendTokens(
+          {
+            model,
+            context: 'reasoning',
+            conversationId: this.conversationId,
+            user: this.user ?? this.options.req.user?.id,
+            endpointTokenConfig: this.options.endpointTokenConfig,
+          },
+          { completionTokens: usage.reasoning_tokens },
+        );
+      }
+    } catch (error) {
+      logger.error(
+        '[api/server/controllers/agents/client.js #recordTokenUsage] Error recording token usage',
+        error,
+      );
+    }
+  }
 
   getEncoding() {
     return 'o200k_base';
