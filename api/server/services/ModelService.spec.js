@@ -1,6 +1,6 @@
 const axios = require('axios');
+const { logger } = require('@librechat/data-schemas');
 const { EModelEndpoint, defaultModels } = require('librechat-data-provider');
-const { logger } = require('~/config');
 
 const {
   fetchModels,
@@ -28,7 +28,8 @@ jest.mock('~/cache/getLogStores', () =>
     set: jest.fn().mockResolvedValue(true),
   })),
 );
-jest.mock('~/config', () => ({
+jest.mock('@librechat/data-schemas', () => ({
+  ...jest.requireActual('@librechat/data-schemas'),
   logger: {
     error: jest.fn(),
   },
@@ -352,15 +353,15 @@ describe('splitAndTrim', () => {
 });
 
 describe('getAnthropicModels', () => {
-  it('returns default models when ANTHROPIC_MODELS is not set', () => {
+  it('returns default models when ANTHROPIC_MODELS is not set', async () => {
     delete process.env.ANTHROPIC_MODELS;
-    const models = getAnthropicModels();
+    const models = await getAnthropicModels();
     expect(models).toEqual(defaultModels[EModelEndpoint.anthropic]);
   });
 
-  it('returns models from ANTHROPIC_MODELS when set', () => {
+  it('returns models from ANTHROPIC_MODELS when set', async () => {
     process.env.ANTHROPIC_MODELS = 'claude-1, claude-2 ';
-    const models = getAnthropicModels();
+    const models = await getAnthropicModels();
     expect(models).toEqual(['claude-1', 'claude-2']);
   });
 });

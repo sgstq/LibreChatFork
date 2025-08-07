@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, memo, useCallback } from 'react';
 import { AutoSizer, List } from 'react-virtualized';
+import { Spinner, useCombobox } from '@librechat/client';
 import { useSetRecoilState, useRecoilValue } from 'recoil';
 import { PermissionTypes, Permissions } from 'librechat-data-provider';
 import type { TPromptGroup } from 'librechat-data-provider';
@@ -7,9 +8,8 @@ import type { PromptOption } from '~/common';
 import { removeCharIfLast, mapPromptGroups, detectVariables } from '~/utils';
 import VariableDialog from '~/components/Prompts/Groups/VariableDialog';
 import CategoryIcon from '~/components/Prompts/Groups/CategoryIcon';
-import { useLocalize, useCombobox, useHasAccess } from '~/hooks';
+import { useLocalize, useHasAccess } from '~/hooks';
 import { useGetAllPromptGroups } from '~/data-provider';
-import { Spinner } from '~/components/svg';
 import MentionItem from './MentionItem';
 import store from '~/store';
 
@@ -69,7 +69,9 @@ function PromptsCommand({
         label: `${group.command != null && group.command ? `/${group.command} - ` : ''}${
           group.name
         }: ${
-          (group.oneliner?.length ?? 0) > 0 ? group.oneliner : group.productionPrompt?.prompt ?? ''
+          (group.oneliner?.length ?? 0) > 0
+            ? group.oneliner
+            : (group.productionPrompt?.prompt ?? '')
         }`,
         icon: <CategoryIcon category={group.category ?? ''} className="h-5 w-5" />,
       }));
@@ -195,7 +197,7 @@ function PromptsCommand({
       variableGroup={variableGroup}
       setVariableDialogOpen={setVariableDialogOpen}
     >
-      <div className="absolute bottom-14 z-10 w-full space-y-2">
+      <div className="absolute bottom-28 z-10 w-full space-y-2">
         <div className="popover border-token-border-light rounded-2xl border bg-surface-tertiary-alt p-2 shadow-lg">
           <input
             // The user expects focus to transition to the input field when the popover is opened

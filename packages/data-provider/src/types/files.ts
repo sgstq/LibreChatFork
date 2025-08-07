@@ -4,10 +4,15 @@ export enum FileSources {
   local = 'local',
   firebase = 'firebase',
   azure = 'azure',
+  azure_blob = 'azure_blob',
   openai = 'openai',
   s3 = 's3',
   vectordb = 'vectordb',
   execute_code = 'execute_code',
+  mistral_ocr = 'mistral_ocr',
+  azure_mistral_ocr = 'azure_mistral_ocr',
+  vertexai_mistral_ocr = 'vertexai_mistral_ocr',
+  text = 'text',
 }
 
 export const checkOpenAIStorage = (source: string) =>
@@ -44,6 +49,12 @@ export type FileConfig = {
   };
   serverFileSizeLimit?: number;
   avatarSizeLimit?: number;
+  clientImageResize?: {
+    enabled?: boolean;
+    maxWidth?: number;
+    maxHeight?: number;
+    quality?: number;
+  };
   checkType?: (fileType: string, supportedTypes: RegExp[]) => boolean;
 };
 
@@ -128,6 +139,7 @@ export type BatchFile = {
   filepath: string;
   embedded: boolean;
   source: FileSources;
+  temp_file_id?: string;
 };
 
 export type DeleteFilesBody = {

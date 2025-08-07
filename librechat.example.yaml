@@ -7,9 +7,19 @@ version: 1.2.1
 # Cache settings: Set to true to enable caching
 cache: true
 
+# File strategy s3/firebase
+# fileStrategy: "s3"
+
 # Custom interface configuration
 interface:
   customWelcome: "Welcome to LibreChat! Enjoy your experience."
+  # MCP Servers UI configuration
+  mcpServers:
+    placeholder: 'MCP Servers'
+  # Enable/disable file search as a chatarea selection (default: true)
+  # Note: This setting does not disable the Agents File Search Capability.
+  # To disable the Agents Capability, see the Agents Endpoint configuration instead.
+  fileSearch: true
   # Privacy policy settings
   privacyPolicy:
     externalUrl: 'https://librechat.ai/privacy-policy'
@@ -67,12 +77,31 @@ interface:
   bookmarks: true
   multiConvo: true
   agents: true
+  # Temporary chat retention period in hours (default: 720, min: 1, max: 8760)
+  # temporaryChatRetention: 1
+
+# Example Cloudflare turnstile (optional)
+#turnstile:
+#  siteKey: "your-site-key-here"
+#  options:
+#    language: "auto"    # "auto" or an ISO 639-1 language code (e.g. en)
+#    size: "normal"      # Options: "normal", "compact", "flexible", or "invisible"
 
 # Example Registration Object Structure (optional)
 registration:
-  socialLogins: ['github', 'google', 'discord', 'openid', 'facebook', 'apple']
+  socialLogins: ['github', 'google', 'discord', 'openid', 'facebook', 'apple', 'saml']
   # allowedDomains:
   # - "gmail.com"
+
+
+# Example Balance settings
+# balance:
+#   enabled: false
+#   startBalance: 20000
+#   autoRefillEnabled: false
+#   refillIntervalValue: 30
+#   refillIntervalUnit: 'days'
+#   refillAmount: 10000
 
 # speech:
 #   tts:
@@ -109,30 +138,32 @@ actions:
     - "google.com"
 
 # Example MCP Servers Object Structure
-mcpServers:
-  everything:
-    # type: sse # type can optionally be omitted
-    url: http://localhost:3001/sse
-  puppeteer:
-    type: stdio
-    command: npx
-    args:
-      - -y
-      - "@modelcontextprotocol/server-puppeteer"
-  filesystem:
-    # type: stdio
-    command: npx
-    args:
-      - -y
-      - "@modelcontextprotocol/server-filesystem"
-      - /home/user/LibreChat/
-    iconPath: /home/user/LibreChat/client/public/assets/logo.svg
-  mcp-obsidian:
-    command: npx
-    args:
-      - -y
-      - "mcp-obsidian"
-      - /path/to/obsidian/vault
+# mcpServers:
+#   everything:
+#     # type: sse # type can optionally be omitted
+#     url: http://localhost:3001/sse
+#     timeout: 60000  # 1 minute timeout for this server, this is the default timeout for MCP servers.
+#   puppeteer:
+#     type: stdio
+#     command: npx
+#     args:
+#       - -y
+#       - "@modelcontextprotocol/server-puppeteer"
+#     timeout: 300000  # 5 minutes timeout for this server
+#   filesystem:
+#     # type: stdio
+#     command: npx
+#     args:
+#       - -y
+#       - "@modelcontextprotocol/server-filesystem"
+#       - /home/user/LibreChat/
+#     iconPath: /home/user/LibreChat/client/public/assets/logo.svg
+#   mcp-obsidian:
+#     command: npx
+#     args:
+#       - -y
+#       - "mcp-obsidian"
+#       - /path/to/obsidian/vault
 
 # Definition of custom endpoints
 endpoints:
@@ -143,18 +174,20 @@ endpoints:
   #   # Should only be one or the other, either `supportedIds` or `excludedIds`
   #   supportedIds: ["asst_supportedAssistantId1", "asst_supportedAssistantId2"]
   #   # excludedIds: ["asst_excludedAssistantId"]
-  #   Only show assistants that the user created or that were created externally (e.g. in Assistants playground).
+  #   # Only show assistants that the user created or that were created externally (e.g. in Assistants playground).
   #   # privateAssistants: false # Does not work with `supportedIds` or `excludedIds`
   #   # (optional) Models that support retrieval, will default to latest known OpenAI models that support the feature
   #   retrievalModels: ["gpt-4-turbo-preview"]
   #   # (optional) Assistant Capabilities available to all users. Omit the ones you wish to exclude. Defaults to list below.
   #   capabilities: ["code_interpreter", "retrieval", "actions", "tools", "image_vision"]
   # agents:
-  #   (optional) Maximum recursion depth for agents, defaults to 25
+  #   # (optional) Default recursion depth for agents, defaults to 25
   #   recursionLimit: 50
-  #   (optional) Disable the builder interface for agents
+  #   # (optional) Max recursion depth for agents, defaults to 25
+  #   maxRecursionLimit: 100
+  #   # (optional) Disable the builder interface for agents
   #   disableBuilder: false
-  #   (optional) Agent Capabilities available to all users. Omit the ones you wish to exclude. Defaults to list below.
+  #   # (optional) Agent Capabilities available to all users. Omit the ones you wish to exclude. Defaults to list below.
   #   capabilities: ["execute_code", "file_search", "actions", "tools"]
   custom:
     # Groq Example
@@ -270,5 +303,36 @@ endpoints:
 #       fileSizeLimit: 5
 #   serverFileSizeLimit: 100  # Global server file size limit in MB
 #   avatarSizeLimit: 2  # Limit for user avatar image size in MB
-# See the Custom Configuration Guide for more information on Assistants Config:
-# https://www.librechat.ai/docs/configuration/librechat_yaml/object_structure/assistants_endpoint
+#   imageGeneration: # Image Gen settings, either percentage or px
+#     percentage: 100
+#     px: 1024
+#   # Client-side image resizing to prevent upload errors
+#   clientImageResize:
+#     enabled: false  # Enable/disable client-side image resizing (default: false)
+#     maxWidth: 1900  # Maximum width for resized images (default: 1900)
+#     maxHeight: 1900  # Maximum height for resized images (default: 1900)
+#     quality: 0.92  # JPEG quality for compression (0.0-1.0, default: 0.92)
+# # See the Custom Configuration Guide for more information on Assistants Config:
+# # https://www.librechat.ai/docs/configuration/librechat_yaml/object_structure/assistants_endpoint
+
+# Memory configuration for user memories
+# memory:
+#   # (optional) Disable memory functionality
+#   disabled: false
+#   # (optional) Restrict memory keys to specific values to limit memory storage and improve consistency
+#   validKeys: ["preferences", "work_info", "personal_info", "skills", "interests", "context"]
+#   # (optional) Maximum token limit for memory storage (not yet implemented for token counting)
+#   tokenLimit: 10000
+#   # (optional) Enable personalization features (defaults to true if memory is configured)
+#   # When false, users will not see the Personalization tab in settings
+#   personalize: true
+#   # Memory agent configuration - either use an existing agent by ID or define inline
+#   agent:
+#     # Option 1: Use existing agent by ID
+#     id: "your-memory-agent-id"
+#     # Option 2: Define agent inline
+#     # provider: "openai"
+#     # model: "gpt-4o-mini"
+#     # instructions: "You are a memory management assistant. Store and manage user information accurately."
+#     # model_parameters:
+#     #   temperature: 0.1

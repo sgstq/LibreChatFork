@@ -1,9 +1,9 @@
 import React from 'react';
-import { Skeleton } from '~/components/ui';
+import { Skeleton } from '@librechat/client';
 
 export default function AgentPanelSkeleton() {
   return (
-    <div className="h-auto bg-white px-4 pb-8 pt-3 dark:bg-transparent">
+    <div className="h-auto bg-white dark:bg-transparent">
       {/* Avatar */}
       <div className="mb-4">
         <div className="flex w-full items-center justify-center gap-4">

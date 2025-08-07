@@ -1,8 +1,5 @@
-const Redis = require('ioredis');
 const passport = require('passport');
 const session = require('express-session');
-const MemoryStore = require('memorystore')(session);
-const RedisStore = require('connect-redis').default;
 const {
   setupOpenId,
   googleLogin,
@@ -10,15 +7,21 @@ const {
   discordLogin,
   facebookLogin,
   appleLogin,
+  setupSaml,
+  openIdJwtLogin,
 } = require('~/strategies');
 const { isEnabled } = require('~/server/utils');
 const { logger } = require('~/config');
+const { getLogStores } = require('~/cache');
+const { CacheKeys } = require('librechat-data-provider');
 
 /**
  *
  * @param {Express.Application} app
  */
-const configureSocialLogins = (app) => {
+const configureSocialLogins = async (app) => {
+  logger.info('Configuring social logins...');
+
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     passport.use(googleLogin());
   }
@@ -41,26 +44,40 @@ const configureSocialLogins = (app) => {
     process.env.OPENID_SCOPE &&
     process.env.OPENID_SESSION_SECRET
   ) {
+    logger.info('Configuring OpenID Connect...');
     const sessionOptions = {
       secret: process.env.OPENID_SESSION_SECRET,
       resave: false,
       saveUninitialized: false,
+      store: getLogStores(CacheKeys.OPENID_SESSION),
     };
-    if (isEnabled(process.env.USE_REDIS)) {
-      const client = new Redis(process.env.REDIS_URI);
-      client
-        .on('error', (err) => logger.error('ioredis error:', err))
-        .on('ready', () => logger.info('ioredis successfully initialized.'))
-        .on('reconnecting', () => logger.info('ioredis reconnecting...'));
-      sessionOptions.store = new RedisStore({ client, prefix: 'librechat' });
-    } else {
-      sessionOptions.store = new MemoryStore({
-        checkPeriod: 86400000, // prune expired entries every 24h
-      });
-    }
     app.use(session(sessionOptions));
     app.use(passport.session());
-    setupOpenId();
+    const config = await setupOpenId();
+    if (isEnabled(process.env.OPENID_REUSE_TOKENS)) {
+      logger.info('OpenID token reuse is enabled.');
+      passport.use('openidJwt', openIdJwtLogin(config));
+    }
+    logger.info('OpenID Connect configured.');
+  }
+  if (
+    process.env.SAML_ENTRY_POINT &&
+    process.env.SAML_ISSUER &&
+    process.env.SAML_CERT &&
+    process.env.SAML_SESSION_SECRET
+  ) {
+    logger.info('Configuring SAML Connect...');
+    const sessionOptions = {
+      secret: process.env.SAML_SESSION_SECRET,
+      resave: false,
+      saveUninitialized: false,
+      store: getLogStores(CacheKeys.SAML_SESSION),
+    };
+    app.use(session(sessionOptions));
+    app.use(passport.session());
+    setupSaml();
+
+    logger.info('SAML Connect configured.');
   }
 };
 

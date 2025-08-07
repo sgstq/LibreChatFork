@@ -1,31 +1,38 @@
-import * as Ariakit from '@ariakit/react';
 import React, { useRef, useState, useMemo } from 'react';
-import { FileSearch, ImageUpIcon, TerminalSquareIcon } from 'lucide-react';
-import { EToolResources, EModelEndpoint } from 'librechat-data-provider';
-import { FileUpload, TooltipAnchor, DropdownPopup } from '~/components/ui';
-import { useGetEndpointsQuery } from '~/data-provider';
-import { AttachmentIcon } from '~/components/svg';
-import { useLocalize } from '~/hooks';
+import * as Ariakit from '@ariakit/react';
+import { useSetRecoilState } from 'recoil';
+import { FileSearch, ImageUpIcon, TerminalSquareIcon, FileType2Icon } from 'lucide-react';
+import { FileUpload, TooltipAnchor, DropdownPopup, AttachmentIcon } from '@librechat/client';
+import { EToolResources, EModelEndpoint, defaultAgentCapabilities } from 'librechat-data-provider';
+import type { EndpointFileConfig } from 'librechat-data-provider';
+import { useLocalize, useGetAgentsConfig, useFileHandling, useAgentCapabilities } from '~/hooks';
+import { ephemeralAgentByConvoId } from '~/store';
 import { cn } from '~/utils';
 
-interface AttachFileProps {
-  isRTL: boolean;
+interface AttachFileMenuProps {
+  conversationId: string;
   disabled?: boolean | null;
-  handleFileChange: (event: React.ChangeEvent<HTMLInputElement>, toolResource?: string) => void;
+  endpointFileConfig?: EndpointFileConfig;
 }
 
-const AttachFile = ({ isRTL, disabled, handleFileChange }: AttachFileProps) => {
+const AttachFileMenu = ({ disabled, conversationId, endpointFileConfig }: AttachFileMenuProps) => {
   const localize = useLocalize();
   const isUploadDisabled = disabled ?? false;
   const inputRef = useRef<HTMLInputElement>(null);
   const [isPopoverActive, setIsPopoverActive] = useState(false);
+  const setEphemeralAgent = useSetRecoilState(ephemeralAgentByConvoId(conversationId));
   const [toolResource, setToolResource] = useState<EToolResources | undefined>();
-  const { data: endpointsConfig } = useGetEndpointsQuery();
+  const { handleFileChange } = useFileHandling({
+    overrideEndpoint: EModelEndpoint.agents,
+    overrideEndpointFileConfig: endpointFileConfig,
+  });
 
-  const capabilities = useMemo(
-    () => endpointsConfig?.[EModelEndpoint.agents]?.capabilities ?? [],
-    [endpointsConfig],
-  );
+  const { agentsConfig } = useGetAgentsConfig();
+  /** TODO: Ephemeral Agent Capabilities
+   * Allow defining agent capabilities on a per-endpoint basis
+   * Use definition for agents endpoint for ephemeral agents
+   * */
+  const capabilities = useAgentCapabilities(agentsConfig?.capabilities ?? defaultAgentCapabilities);
 
   const handleUploadClick = (isImage?: boolean) => {
     if (!inputRef.current) {
@@ -49,22 +56,38 @@ const AttachFile = ({ isRTL, disabled, handleFileChange }: AttachFileProps) => {
       },
     ];
 
-    if (capabilities.includes(EToolResources.file_search)) {
+    if (capabilities.ocrEnabled) {
+      items.push({
+        label: localize('com_ui_upload_ocr_text'),
+        onClick: () => {
+          setToolResource(EToolResources.ocr);
+          handleUploadClick();
+        },
+        icon: <FileType2Icon className="icon-md" />,
+      });
+    }
+
+    if (capabilities.fileSearchEnabled) {
       items.push({
         label: localize('com_ui_upload_file_search'),
         onClick: () => {
           setToolResource(EToolResources.file_search);
+          /** File search is not automatically enabled to simulate legacy behavior */
           handleUploadClick();
         },
         icon: <FileSearch className="icon-md" />,
       });
     }
 
-    if (capabilities.includes(EToolResources.execute_code)) {
+    if (capabilities.codeEnabled) {
       items.push({
         label: localize('com_ui_upload_code_files'),
         onClick: () => {
           setToolResource(EToolResources.execute_code);
+          setEphemeralAgent((prev) => ({
+            ...prev,
+            [EToolResources.execute_code]: true,
+          }));
           handleUploadClick();
         },
         icon: <TerminalSquareIcon className="icon-md" />,
@@ -72,7 +95,7 @@ const AttachFile = ({ isRTL, disabled, handleFileChange }: AttachFileProps) => {
     }
 
     return items;
-  }, [capabilities, localize, setToolResource]);
+  }, [capabilities, localize, setToolResource, setEphemeralAgent]);
 
   const menuTrigger = (
     <TooltipAnchor
@@ -82,8 +105,7 @@ const AttachFile = ({ isRTL, disabled, handleFileChange }: AttachFileProps) => {
           id="attach-file-menu-button"
           aria-label="Attach File Options"
           className={cn(
-            'absolute flex size-[35px] items-center justify-center rounded-full p-1 transition-colors hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50',
-            isRTL ? 'bottom-2 right-2' : 'bottom-2 left-1 md:left-2',
+            'flex size-9 items-center justify-center rounded-full p-1 transition-colors hover:bg-surface-hover focus:outline-none focus:ring-2 focus:ring-primary focus:ring-opacity-50',
           )}
         >
           <div className="flex w-full items-center justify-center gap-2">
@@ -104,19 +126,18 @@ const AttachFile = ({ isRTL, disabled, handleFileChange }: AttachFileProps) => {
         handleFileChange(e, toolResource);
       }}
     >
-      <div className="relative select-none">
-        <DropdownPopup
-          menuId="attach-file-menu"
-          isOpen={isPopoverActive}
-          setIsOpen={setIsPopoverActive}
-          modal={true}
-          trigger={menuTrigger}
-          items={dropdownItems}
-          iconClassName="mr-0"
-        />
-      </div>
+      <DropdownPopup
+        menuId="attach-file-menu"
+        isOpen={isPopoverActive}
+        setIsOpen={setIsPopoverActive}
+        modal={true}
+        unmountOnHide={true}
+        trigger={menuTrigger}
+        items={dropdownItems}
+        iconClassName="mr-0"
+      />
     </FileUpload>
   );
 };
 
-export default React.memo(AttachFile);
+export default React.memo(AttachFileMenu);
