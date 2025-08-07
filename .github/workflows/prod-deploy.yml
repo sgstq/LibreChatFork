@@ -1,0 +1,56 @@
+name: Deploy to Prod Server
+
+on:
+  push:
+    branches:
+      - prod
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo (for context only)
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          # port defaults to 22 if not provided
+          script_stop: true
+          script: |
+            set -Eeuo pipefail
+            echo "Connected to $(hostname)" && date
+            cd "${{ secrets.PROD_PROJECT_PATH }}"
+            echo "Repo path: $(pwd)"
+            test -f deploy-compose.yml || { echo "deploy-compose.yml not found in $(pwd)"; exit 1; }
+            test -f .env || { echo ".env not found in $(pwd). Create it based on .env.example and server secrets."; exit 1; }
+            # Ensure prod branch is current
+            if [ -d .git ]; then
+              git fetch --all --prune
+              git checkout prod
+              git reset --hard origin/prod
+            else
+              echo "No .git directory found at $PWD. Please clone the repo here and checkout 'prod' first."
+              exit 1
+            fi
+
+            # Pull latest images referenced by deploy-compose.yml
+            docker compose -f deploy-compose.yml pull
+
+            # Recreate services
+            docker compose -f deploy-compose.yml up -d --remove-orphans
+
+            # Optional cleanup (won't fail the deploy if nothing to prune)
+            docker image prune -af || true
+            docker compose -f deploy-compose.yml ps
+            echo "Deployment completed."
+
+
