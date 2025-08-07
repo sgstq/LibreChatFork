@@ -2,8 +2,7 @@ name: Frontend Unit Tests
 
 on:
   pull_request:
-    branches: 
-      - main
+    branches:
       - dev
       - release/*
     paths:

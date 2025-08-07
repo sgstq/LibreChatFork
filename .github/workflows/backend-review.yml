@@ -2,7 +2,6 @@ name: Backend Unit Tests
 on:
   pull_request:
     branches:
-      - main
       - dev
       - release/*
     paths:
