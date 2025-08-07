@@ -1,14 +1,14 @@
-name: Docker Dev Images Build
+name: Build and Push Images (prod)
 
 on:
-  workflow_dispatch:
   push:
     branches:
-      - dev
+      - prod
     paths:
       - 'api/**'
       - 'client/**'
       - 'packages/**'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,10 +18,10 @@ jobs:
         include:
           - target: api-build
             file: Dockerfile.multi
-            image_name: librechat-dev-api
+            image_name: librechat-api
           - target: node
             file: Dockerfile
-            image_name: librechat-dev
+            image_name: librechat
 
     steps:
       # Check out the repository
@@ -45,16 +45,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Login to Docker Hub
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # optional Docker Hub login if you still want to push there
+      # - name: Login to Docker Hub
+      #   uses: docker/login-action@v3
+      #   with:
+      #     username: ${{ secrets.DOCKERHUB_USERNAME }}
+      #     password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Prepare the environment
       - name: Prepare environment
-        run: |
-          cp .env.example .env
+        run: cp .env.example .env
 
       # Build and push Docker images for each target
       - name: Build and push Docker images
@@ -66,7 +66,5 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}:${{ github.sha }}
             ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image_name }}:${{ github.sha }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image_name }}:latest
           platforms: linux/amd64,linux/arm64
           target: ${{ matrix.target }}
