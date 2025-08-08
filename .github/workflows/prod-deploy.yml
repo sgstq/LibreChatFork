@@ -23,6 +23,8 @@ jobs:
           host: ${{ secrets.PROD_SSH_HOST }}
           username: ${{ secrets.PROD_SSH_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
+          timeout: 10m
+          command_timeout: 30m
           # port defaults to 22 if not provided
           script_stop: true
           script: |
@@ -42,11 +44,11 @@ jobs:
               exit 1
             fi
 
-            # Pull latest images referenced by deploy-compose.yml
-            docker compose -f deploy-compose.yml pull
+            # Pull and update ONLY the API service to avoid touching other long-running services
+            docker compose -f deploy-compose.yml pull api
 
-            # Recreate services
-            docker compose -f deploy-compose.yml up -d --remove-orphans
+            # Recreate ONLY the API service without restarting dependencies
+            docker compose -f deploy-compose.yml up -d --no-deps --remove-orphans api
 
             # Optional cleanup (won't fail the deploy if nothing to prune)
             docker image prune -af || true
