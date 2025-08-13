@@ -1,6 +1,9 @@
 services:
   api:
-    image: ghcr.io/sgstq/librechat-api:${API_TAG:-latest}
+    build:
+      context: .
+      dockerfile: ./Dockerfile.multi
+
     container_name: LibreChat-API
     ports:
       - 3080:3080
